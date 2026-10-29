@@ -50,6 +50,7 @@ export interface Member {
   role: Role;
   joined_at: string;
   team_ids: string[];
+  discord_user_id: string | null;
 }
 
 export interface Invitation {

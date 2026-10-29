@@ -10,6 +10,7 @@ import { IntegrationsPage } from "@/features/integrations/IntegrationsPage";
 import { NotificationsPage } from "@/features/notifications/NotificationsPage";
 import { SubscribeDialog } from "@/features/settings/CalendarFeeds";
 import { SwapsPage } from "@/features/swaps/SwapsPage";
+import { UsersPage } from "@/features/users/UsersPage";
 import { meFixture, mockApi, renderWithProviders } from "./utils";
 import type { ScheduleForm } from "@/features/schedules/schema";
 
@@ -246,5 +247,27 @@ describe("shift swaps", () => {
     await waitFor(() => expect(calls.some((c) => c.url === "/swap-requests/w1/accept")).toBe(true));
     expect(await screen.findByText("Accepted")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Waiting for you" })).toBeNull();
+  });
+});
+
+describe("discord mentions", () => {
+  it("lets an admin set a member's Discord id", async () => {
+    const calls = mockApi((url, init) => {
+      if (url === "/me") return { status: 200, body: meFixture("admin", ADMIN) };
+      if (url === "/invitations") return { status: 200, body: [] };
+      if (url === "/members")
+        return {
+          status: 200,
+          body: [{ user_id: "u2", email: "andi@acme.test", display_name: "Andi", avatar_url: null, role: "member", joined_at: "2026-10-01T00:00:00Z", team_ids: [], discord_user_id: null }],
+        };
+      if (url === "/members/u2/discord" && init?.method === "PUT") return { status: 204 };
+    });
+    renderWithProviders(<UsersPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Set Discord id for Andi" }));
+    await userEvent.type(screen.getByLabelText("Discord user id"), "1470247319613210738");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.some((c) => c.url === "/members/u2/discord")).toBe(true));
+    const put = calls.find((c) => c.url === "/members/u2/discord");
+    expect(JSON.parse(String(put?.init?.body))).toEqual({ discord_user_id: "1470247319613210738" });
   });
 });

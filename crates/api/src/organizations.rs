@@ -173,11 +173,12 @@ pub struct Member {
     role: String,
     joined_at: DateTime<Utc>,
     team_ids: Vec<Uuid>,
+    discord_user_id: Option<String>,
 }
 
 pub async fn list_members(State(state): State<AppState>, ctx: OrgContext) -> AppResult<Json<Vec<Member>>> {
     let members = sqlx::query_as(
-        "SELECT u.id AS user_id, u.email, u.display_name, u.avatar_url, m.role, m.created_at AS joined_at,
+        "SELECT u.id AS user_id, u.email, u.display_name, u.avatar_url, m.role, m.created_at AS joined_at, u.discord_user_id,
                 COALESCE(array_agg(tm.team_id) FILTER (WHERE tm.team_id IS NOT NULL), '{}') AS team_ids
          FROM organization_memberships m
          JOIN users u ON u.id = m.user_id
@@ -281,6 +282,60 @@ pub async fn remove_member(State(state): State<AppState>, ctx: OrgContext, Path(
         .await?;
     audit::record_tx(&mut tx, Some(ctx.organization_id), Some(ctx.user_id()), "member.removed", "user", Some(user_id), json!({ "role": current.as_str() }))
         .await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct MemberDiscord {
+    /// The numeric Discord user id used to @mention this person; empty or null clears it.
+    discord_user_id: Option<String>,
+}
+
+/// Set the Discord user id a member is @mentioned with. Anyone may set their own; admins may set
+/// it for others. The id lives on the user, so it is shared with every organization they belong
+/// to; an admin may therefore only set it for people who are in no other organization.
+pub async fn set_member_discord(
+    State(state): State<AppState>,
+    ctx: OrgContext,
+    Path(user_id): Path<Uuid>,
+    Json(body): Json<MemberDiscord>,
+) -> AppResult<StatusCode> {
+    let own = user_id == ctx.user_id();
+    if !own {
+        ctx.require(Permission::ManageMembers)?;
+    }
+    let value = body.discord_user_id.as_deref().map(str::trim).filter(|v| !v.is_empty());
+    if let Some(v) = value {
+        if !(5..=25).contains(&v.len()) || !v.chars().all(|c| c.is_ascii_digit()) {
+            return Err(AppError::validation("discord_user_id", "a Discord user id is a number of 5 to 25 digits"));
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    member_role(&mut tx, ctx.organization_id, user_id).await?;
+    if !own {
+        let elsewhere: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM organization_memberships WHERE user_id = $1 AND organization_id <> $2)")
+            .bind(user_id)
+            .bind(ctx.organization_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if elsewhere {
+            return Err(AppError::Conflict(
+                "this person also belongs to another organization, so only they can change their Discord id (on their profile)".into(),
+            ));
+        }
+    }
+    sqlx::query("UPDATE users SET discord_user_id = $2, updated_at = now() WHERE id = $1").bind(user_id).bind(value).execute(&mut *tx).await?;
+    audit::record_tx(
+        &mut tx,
+        Some(ctx.organization_id),
+        Some(ctx.user_id()),
+        "member.discord_id_changed",
+        "user",
+        Some(user_id),
+        json!({ "set": value.is_some() }),
+    )
+    .await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -114,7 +114,9 @@ pub struct NewEvent<'a> {
 }
 
 /// Insert an event unless one with the same dedupe key exists. A superseded event that becomes
-/// relevant again (the edit was reverted) is revived instead of duplicated.
+/// relevant again (the edit was reverted) is revived instead of duplicated, and an event still
+/// waiting to be sent takes the newest payload, so a renamed person or a newly added Discord id
+/// shows up in messages planned before the change. Returns whether anything changed.
 pub async fn enqueue(tx: &mut Transaction<'_, Postgres>, event: NewEvent<'_>) -> sqlx::Result<bool> {
     let mut tags: Vec<&str> = event.tags.iter().map(|t| t.as_str()).collect();
     if !tags.contains(&event.kind.as_str()) {
@@ -124,7 +126,8 @@ pub async fn enqueue(tx: &mut Transaction<'_, Postgres>, event: NewEvent<'_>) ->
         "INSERT INTO notification_events (organization_id, schedule_id, team_id, event_type, tags, dedupe_key, payload, scheduled_for, exclude_integration_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (dedupe_key) DO UPDATE SET status = 'pending', payload = EXCLUDED.payload, scheduled_for = EXCLUDED.scheduled_for
-         WHERE notification_events.status = 'superseded'",
+         WHERE notification_events.status = 'superseded'
+            OR (notification_events.status = 'pending' AND notification_events.payload IS DISTINCT FROM EXCLUDED.payload)",
     )
     .bind(event.organization_id)
     .bind(event.schedule_id)

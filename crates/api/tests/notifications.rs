@@ -248,3 +248,69 @@ async fn schedule_changes_supersede_pending_reminders(pool: PgPool) {
     app.patch(&format!("/api/v1/schedules/{schedule_id}"), &owner, json!({ "status": "active" })).await;
     assert_eq!(pending(pool.clone(), schedule_id.clone()).await, before);
 }
+
+#[sqlx::test(migrator = "oncallkit::MIGRATOR")]
+async fn a_new_discord_id_reaches_notifications_already_planned(pool: PgPool) {
+    let server = mock_discord().await;
+    let app = app_for(pool, &server);
+    let (owner, schedule_id, _) = setup(&app, &["rotation_approaching", "rotation_changed"]).await;
+    let people = app.get("/api/v1/members", &owner).await.1;
+    let andi = people.as_array().unwrap().iter().find(|m| m["email"] == "andi@acme.test").unwrap()["user_id"].as_str().unwrap().to_string();
+
+    // Plan: the upcoming hand-over and its reminder are stored without any Discord id.
+    oncallkit::notifications::planner::plan_all(&app.state).await.unwrap();
+    let pending = |db: &PgPool| {
+        let db = db.clone();
+        let schedule_id = schedule_id.clone();
+        async move {
+            sqlx::query_scalar::<_, String>("SELECT payload::text FROM notification_events WHERE schedule_id = $1::uuid AND status = 'pending'")
+                .bind(schedule_id)
+                .fetch_all(&db)
+                .await
+                .unwrap()
+        }
+    };
+    let before = pending(&app.state.db).await;
+    assert!(!before.is_empty());
+    assert!(before.iter().all(|p| !p.contains("4242424242")));
+
+    // An admin sets Andi's Discord id; members without the permission cannot.
+    let andi_session = app.login("andi@acme.test").await;
+    let owner_id = app.user_id(&owner).await;
+    let (status, _) = app
+        .request(axum::http::Method::PUT, &format!("/api/v1/members/{owner_id}/discord"), Some(&andi_session), Some(json!({ "discord_user_id": "1" })))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, body) =
+        app.request(axum::http::Method::PUT, &format!("/api/v1/members/{andi}/discord"), Some(&owner), Some(json!({ "discord_user_id": "4242424242" }))).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let members = app.get("/api/v1/members", &owner).await.1;
+    assert!(members.as_array().unwrap().iter().any(|m| m["discord_user_id"] == "4242424242"));
+
+    // The next planning run refreshes what is still waiting, without duplicating anything.
+    oncallkit::notifications::planner::plan_all(&app.state).await.unwrap();
+    let after = pending(&app.state.db).await;
+    assert_eq!(after.len(), before.len());
+    assert!(after.iter().any(|p| p.contains("4242424242")), "{after:?}");
+    // Planning again with nothing changed touches nothing.
+    assert_eq!(oncallkit::notifications::planner::plan_all(&app.state).await.unwrap(), 0);
+}
+
+#[sqlx::test(migrator = "oncallkit::MIGRATOR")]
+async fn admins_cannot_change_the_discord_id_of_people_in_other_organizations(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let owner = app.login("riky@acme.test").await;
+    let people = app.org_with_members(&owner, &[("andi@acme.test", "member")]).await;
+    let (andi_session, andi) = (people[0].0.clone(), people[0].1.clone());
+    // Andi also runs an organization of his own.
+    let (status, _) = app.post("/api/v1/organizations", &andi_session, json!({ "name": "Side project" })).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) =
+        app.request(axum::http::Method::PUT, &format!("/api/v1/members/{andi}/discord"), Some(&owner), Some(json!({ "discord_user_id": "4242424242" }))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    // Bad ids are refused.
+    let owner_id = app.user_id(&owner).await;
+    let (status, _) =
+        app.request(axum::http::Method::PUT, &format!("/api/v1/members/{owner_id}/discord"), Some(&owner), Some(json!({ "discord_user_id": "@riky" }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}

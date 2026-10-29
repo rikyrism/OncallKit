@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorMessage } from "@/lib/api";
 import { keys, useCan, useMe, useMembers } from "@/lib/queries";
-import type { Invitation, Role } from "@/lib/types";
+import type { Invitation, Member, Role } from "@/lib/types";
 import { Button, ConfirmDialog, Dialog, ErrorNote, Field, Input, Loading, PageHeader, Panel, Person, Select, Tag, useToast } from "@/components/ui";
 import { formatDateTime, browserTimezone } from "@/lib/time";
 
@@ -121,6 +121,7 @@ export function UsersPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["invitations"] }),
   });
 
+  const [editingDiscord, setEditingDiscord] = useState<Member | null>(null);
   const open = (invitations.data ?? []).filter((i) => !i.accepted_at && !i.revoked_at && new Date(i.expires_at) > new Date());
 
   return (
@@ -135,6 +136,7 @@ export function UsersPage() {
               <tr>
                 <th>Person</th>
                 <th>Role</th>
+                <th>Discord</th>
                 <th>Joined</th>
                 <th>
                   <span className="sr-only">Actions</span>
@@ -163,6 +165,16 @@ export function UsersPage() {
                         <Tag tone={m.role === "owner" ? "signal" : "neutral"}>{m.role}</Tag>
                       )}
                     </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <span className={m.discord_user_id ? "tabular" : "text-ink-soft"}>{m.discord_user_id ?? "Not set"}</span>
+                        {(can("manage_members") || m.user_id === me?.user.user_id) && (
+                          <Button size="sm" variant="ghost" aria-label={`Set Discord id for ${m.display_name}`} onClick={() => setEditingDiscord(m)}>
+                            {m.discord_user_id ? "Change" : "Set"}
+                          </Button>
+                        )}
+                      </div>
+                    </td>
                     <td className="tabular">{formatDateTime(m.joined_at, browserTimezone())}</td>
                     <td className="text-right">
                       {editable && (
@@ -178,6 +190,8 @@ export function UsersPage() {
           </table>
         </div>
       )}
+
+      <DiscordIdDialog member={editingDiscord} onClose={() => setEditingDiscord(null)} />
 
       {can("manage_members") && (
         <Panel title="Open invitations">
@@ -204,5 +218,57 @@ export function UsersPage() {
         They lose access immediately and are taken out of every rotation from now on. Their past shifts stay in the history.
       </ConfirmDialog>
     </div>
+  );
+}
+
+/** Set the Discord user id a member is @mentioned with in notifications. */
+function DiscordIdDialog({ member, onClose }: { member: Member | null; onClose: () => void }) {
+  const [value, setValue] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const current = value ?? member?.discord_user_id ?? "";
+  const close = () => {
+    setValue(null);
+    save.reset();
+    onClose();
+  };
+  const save = useMutation({
+    mutationFn: () => api.put(`/members/${member!.user_id}/discord`, { discord_user_id: current.trim() || null }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: keys.members });
+      await qc.invalidateQueries({ queryKey: keys.me });
+      toast(current.trim() ? "Discord id saved" : "Discord id removed");
+      close();
+    },
+  });
+  return (
+    <Dialog open={!!member} onClose={close} title={`Discord id for ${member?.display_name ?? ""}`}>
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+      >
+        <Field
+          label="Discord user id"
+          htmlFor="member-discord"
+          hint="With Mention people turned on for an integration, this person is tagged when they go on call. In Discord: Settings, Advanced, Developer Mode, then right-click their name and Copy User ID."
+        >
+          <Input id="member-discord" inputMode="numeric" pattern="[0-9]{5,25}" placeholder="1470247319613210738" value={current} onChange={(e) => setValue(e.target.value)} />
+        </Field>
+        {save.error && (
+          <p role="alert" className="text-danger">
+            {errorMessage(save.error)}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button onClick={close}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={save.isPending}>
+            Save
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

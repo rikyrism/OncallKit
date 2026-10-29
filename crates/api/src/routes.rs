@@ -1,7 +1,7 @@
 use axum::{
     http::{header, HeaderName, HeaderValue},
     middleware,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use tower_http::{
@@ -39,6 +39,7 @@ pub fn router(state: AppState) -> Router {
         .route("/organizations/{id}/activate", post(organizations::activate))
         .route("/members", get(organizations::list_members))
         .route("/members/{user_id}", patch(organizations::update_member).delete(organizations::remove_member))
+        .route("/members/{user_id}/discord", put(organizations::set_member_discord))
         .route("/invitations", get(organizations::list_invitations).post(organizations::create_invitation))
         .route("/invitations/{id}", delete(organizations::revoke_invitation))
         // teams
