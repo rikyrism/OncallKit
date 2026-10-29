@@ -15,7 +15,7 @@ name = "oncallkit"
 path = "src/lib.rs"
 
 [dependencies]
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 anyhow = "1"
 axum = { version = "0.8", features = ["macros"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
