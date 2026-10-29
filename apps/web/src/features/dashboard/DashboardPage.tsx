@@ -246,7 +246,11 @@ export function DashboardPage() {
           }
         >
           A schedule decides who is on call and when it hands over. Add the people in the order they should rotate, choose how often, and OncallKit works
-          out every shift from there, including who is on call right now.
+          out every shift from there, including who is on call right now. The{" "}
+          <Link to="/guide" className="font-semibold underline underline-offset-4">
+            setup guide
+          </Link>{" "}
+          walks you from here to messages in Discord.
         </Empty>
       )}
       {data && data.schedules.length > 0 && (

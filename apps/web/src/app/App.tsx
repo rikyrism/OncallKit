@@ -19,6 +19,7 @@ import { AuditPage } from "@/features/audit/AuditPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { ProfilePage } from "@/features/settings/ProfilePage";
 import { SwapsPage } from "@/features/swaps/SwapsPage";
+import { GuidePage } from "@/features/guide/GuidePage";
 
 /** Signed-in users only. Others go to the login page and come back afterwards. */
 export function RequireAuth({ children, needsOrg = true }: { children: ReactNode; needsOrg?: boolean }) {
@@ -44,6 +45,7 @@ export function App() {
         <Route path="schedules/:id" element={<ScheduleDetailPage />} />
         <Route path="schedules/:id/edit" element={<ScheduleFormPage />} />
         <Route path="swaps" element={<SwapsPage />} />
+        <Route path="guide" element={<GuidePage />} />
         <Route path="teams" element={<TeamsPage />} />
         <Route path="teams/:id" element={<TeamDetailPage />} />
         <Route path="users" element={<UsersPage />} />

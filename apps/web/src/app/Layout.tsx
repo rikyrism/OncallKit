@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, Bell, CalendarClock, History, LayoutGrid, LogOut, Menu, Moon, Plug, ScrollText, Settings, Sun, SunMoon, Users, UsersRound, X } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpen, CalendarClock, History, LayoutGrid, LogOut, Menu, Moon, Plug, ScrollText, Settings, Sun, SunMoon, Users, UsersRound, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useCan, useMe } from "@/lib/queries";
 import type { Permission } from "@/lib/types";
@@ -18,6 +18,7 @@ const NAV: { to: string; label: string; icon: typeof LayoutGrid; permission?: Pe
   { to: "/notifications", label: "Notification history", icon: Bell, permission: "view_integrations" },
   { to: "/audit", label: "Audit logs", icon: ScrollText, permission: "view_audit_logs" },
   { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/guide", label: "Setup guide", icon: BookOpen },
 ];
 
 export function Wordmark({ onSignal = false }: { onSignal?: boolean }) {

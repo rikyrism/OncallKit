@@ -154,6 +154,11 @@
   .rise-4 {
     animation-delay: 210ms;
   }
+  /* Parts waiting to rise in as they scroll into view. Only hidden when motion is allowed. */
+  .reveal-wait {
+    opacity: 0;
+    transform: translateY(20px);
+  }
   @keyframes rise {
     from {
       opacity: 0;

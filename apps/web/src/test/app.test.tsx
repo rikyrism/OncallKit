@@ -11,6 +11,7 @@ import { NotificationsPage } from "@/features/notifications/NotificationsPage";
 import { SubscribeDialog } from "@/features/settings/CalendarFeeds";
 import { SwapsPage } from "@/features/swaps/SwapsPage";
 import { UsersPage } from "@/features/users/UsersPage";
+import { GuidePage } from "@/features/guide/GuidePage";
 import { meFixture, mockApi, renderWithProviders } from "./utils";
 import type { ScheduleForm } from "@/features/schedules/schema";
 
@@ -264,10 +265,36 @@ describe("discord mentions", () => {
     });
     renderWithProviders(<UsersPage />);
     await userEvent.click(await screen.findByRole("button", { name: "Set Discord id for Andi" }));
-    await userEvent.type(screen.getByLabelText("Discord user id"), "1470247319613210738");
+    await userEvent.type(screen.getByLabelText("Discord user id"), "123456789012345678");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.some((c) => c.url === "/members/u2/discord")).toBe(true));
     const put = calls.find((c) => c.url === "/members/u2/discord");
-    expect(JSON.parse(String(put?.init?.body))).toEqual({ discord_user_id: "1470247319613210738" });
+    expect(JSON.parse(String(put?.init?.body))).toEqual({ discord_user_id: "123456789012345678" });
+  });
+});
+
+describe("setup guide", () => {
+  it("tracks the organization's real progress and points at the next step", async () => {
+    mockApi((url) => {
+      if (url === "/me") return { status: 200, body: meFixture("admin", ADMIN) };
+      if (url === "/members")
+        return {
+          status: 200,
+          body: [
+            { user_id: "u1", email: "riky@acme.test", display_name: "Riky", avatar_url: null, role: "admin", joined_at: "", team_ids: [], discord_user_id: null },
+            { user_id: "u2", email: "andi@acme.test", display_name: "Andi", avatar_url: null, role: "member", joined_at: "", team_ids: [], discord_user_id: null },
+          ],
+        };
+      if (url === "/integrations") return { status: 200, body: [] };
+      if (url === "/schedules") return { status: 200, body: [] };
+      if (url === "/teams") return { status: 200, body: [] };
+      if (url === "/oncall/overview") return { status: 200, body: { schedules: [], upcoming: [] } };
+    });
+    renderWithProviders(<GuidePage />);
+    expect(await screen.findByText(/1 of 5/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /next: create a webhook in Discord/i })).toHaveAttribute("href", "#webhook");
+    expect(screen.getByRole("heading", { name: "Create the rotation" })).toBeInTheDocument();
+    // With no running schedule, the message is labelled as an example.
+    expect(screen.getByText(/An example of the hand-over message/)).toBeInTheDocument();
   });
 });

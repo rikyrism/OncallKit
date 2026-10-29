@@ -255,7 +255,7 @@ function DiscordIdDialog({ member, onClose }: { member: Member | null; onClose: 
           htmlFor="member-discord"
           hint="With Mention people turned on for an integration, this person is tagged when they go on call. In Discord: Settings, Advanced, Developer Mode, then right-click their name and Copy User ID."
         >
-          <Input id="member-discord" inputMode="numeric" pattern="[0-9]{5,25}" placeholder="1470247319613210738" value={current} onChange={(e) => setValue(e.target.value)} />
+          <Input id="member-discord" inputMode="numeric" pattern="[0-9]{5,25}" placeholder="123456789012345678" value={current} onChange={(e) => setValue(e.target.value)} />
         </Field>
         {save.error && (
           <p role="alert" className="text-danger">
