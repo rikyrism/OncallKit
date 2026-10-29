@@ -1,0 +1,48 @@
+# OncallKit: `cp .env.example .env`, fill in the values, then `docker compose up --build`.
+# The web app is served on http://localhost:8080 (set PUBLIC_URL to match).
+name: oncallkit
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: oncallkit
+      POSTGRES_USER: oncallkit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oncallkit -d oncallkit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    image: oncallkit/api:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://oncallkit:${POSTGRES_PASSWORD}@db:5432/oncallkit
+      BIND_ADDR: 0.0.0.0:8080
+      TRUST_PROXY_HEADERS: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/web.Dockerfile
+    image: oncallkit/web:local
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      - api
+
+volumes:
+  db-data:

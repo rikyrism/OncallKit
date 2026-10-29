@@ -1,0 +1,167 @@
+@import "tailwindcss";
+
+/*
+  OncallKit design tokens.
+  One typeface (Instrument Sans), one ground, one ink, one accent (signal yellow, the colour of
+  a pager screen and a duty board). Surfaces are separated by steps in tone, never by lines or
+  shadows. Shadows exist only on things that float (dialogs, menus, toasts).
+*/
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --ground: #f2f2ef;
+  --surface: #ffffff;
+  --surface-2: #e7e7e2;
+  --surface-3: #dcdcd5;
+  --ink: #141413;
+  --ink-soft: #55554f;
+  --signal: #f2c200;
+  --signal-ink: #141413;
+  --signal-soft: #fbeaa4;
+  --danger: #b42d17;
+  --danger-soft: #f6dcd5;
+  --ok: #1d6b3a;
+  --ok-soft: #d8eadc;
+  --focus: #1f4fd8;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #121211;
+    --surface: #1c1c1a;
+    --surface-2: #262624;
+    --surface-3: #32322f;
+    --ink: #eeeee8;
+    --ink-soft: #a9a9a1;
+    --signal: #f2c200;
+    --signal-ink: #141413;
+    --signal-soft: #3d3410;
+    --danger: #ff7a62;
+    --danger-soft: #3a1d17;
+    --ok: #7bd197;
+    --ok-soft: #173222;
+    --focus: #8fb0ff;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #121211;
+  --surface: #1c1c1a;
+  --surface-2: #262624;
+  --surface-3: #32322f;
+  --ink: #eeeee8;
+  --ink-soft: #a9a9a1;
+  --signal: #f2c200;
+  --signal-ink: #141413;
+  --signal-soft: #3d3410;
+  --danger: #ff7a62;
+  --danger-soft: #3a1d17;
+  --ok: #7bd197;
+  --ok-soft: #173222;
+  --focus: #8fb0ff;
+  color-scheme: dark;
+}
+
+@theme {
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-signal-soft: var(--signal-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --text-display: clamp(2.75rem, 6.5vw, 6.5rem);
+  --text-display--line-height: 0.95;
+  --text-display--letter-spacing: -0.035em;
+  --text-title: clamp(1.75rem, 3vw, 2.5rem);
+  --text-title--line-height: 1.05;
+  --text-title--letter-spacing: -0.02em;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--signal);
+    color: var(--signal-ink);
+  }
+  time,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.45);
+  }
+}
+
+@layer components {
+  /* Table and form fields keep their conventional rules; everything else uses tone. */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+  .data-table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--ink-soft);
+    padding: 10px 16px;
+    background: var(--surface-2);
+  }
+  .data-table td {
+    padding: 14px 16px;
+    vertical-align: top;
+    border-top: 1px solid var(--surface-2);
+  }
+  .data-table tr:first-child td {
+    border-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .rise-2 {
+    animation-delay: 70ms;
+  }
+  .rise-3 {
+    animation-delay: 140ms;
+  }
+  .rise-4 {
+    animation-delay: 210ms;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

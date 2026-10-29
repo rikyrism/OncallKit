@@ -1,0 +1,564 @@
+openapi: 3.1.0
+info:
+  title: OncallKit API
+  version: 0.1.0
+  description: |
+    REST API for OncallKit. All endpoints are under `/api/v1`.
+
+    **Authentication.** Browser sessions use an HttpOnly cookie set by the sign-in flow.
+    Every request that is not GET must also send the session's CSRF token (from `GET /me`)
+    in the `X-CSRF-Token` header.
+
+    **Organization scope.** Organization resources (teams, schedules, integrations, …) belong to the
+    session's active organization, chosen with `POST /organizations/{id}/activate`.
+
+    **Times.** Instants are RFC 3339 UTC. Fields ending in `_local` are wall-clock times
+    (`YYYY-MM-DDTHH:MM`) in the schedule's IANA timezone.
+
+    **Errors.** `{"error": {"code": "...", "message": "...", "field": "..."|null}}` with codes
+    `bad_request` (400), `unauthenticated` (401), `forbidden` (403), `not_found` (404),
+    `conflict` (409), `validation_failed` (422), `rate_limited` (429), `internal_error` (500).
+  license:
+    name: Apache-2.0
+servers:
+  - url: /api/v1
+security:
+  - session: []
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: oncallkit_session
+      description: "Named `__Host-oncallkit_session` when PUBLIC_URL is https."
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NoContent:
+      description: Done
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            field: { type: [string, "null"] }
+    Role: { type: string, enum: [owner, admin, scheduler, member] }
+    Layer: { type: string, enum: [primary, secondary] }
+    Me:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            user_id: { type: string, format: uuid }
+            email: { type: string }
+            display_name: { type: string }
+            discord_user_id: { type: [string, "null"] }
+            is_instance_admin: { type: boolean }
+        csrf_token: { type: string }
+        memberships:
+          type: array
+          items:
+            type: object
+            properties:
+              organization_id: { type: string, format: uuid }
+              name: { type: string }
+              slug: { type: string }
+              role: { $ref: "#/components/schemas/Role" }
+        active_organization_id: { type: [string, "null"], format: uuid }
+        role: { oneOf: [{ $ref: "#/components/schemas/Role" }, { type: "null" }] }
+        permissions: { type: array, items: { type: string } }
+        can_create_organization: { type: boolean }
+    Organization:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        timezone: { type: string, example: Asia/Jakarta }
+        created_at: { type: string, format: date-time }
+    Member:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: string }
+        display_name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        joined_at: { type: string, format: date-time }
+        team_ids: { type: array, items: { type: string, format: uuid } }
+    Team:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        member_ids: { type: array, items: { type: string, format: uuid } }
+        active_schedule_count: { type: integer }
+    TeamInput:
+      type: object
+      properties:
+        name: { type: string, maxLength: 120 }
+        description: { type: string }
+        member_ids: { type: array, items: { type: string, format: uuid } }
+    Rotation:
+      type: object
+      required: [interval, unit, primary]
+      properties:
+        interval: { type: integer, minimum: 1 }
+        unit: { type: string, enum: [hours, days, weeks] }
+        primary: { type: array, minItems: 1, items: { type: string, format: uuid }, description: Rotation order }
+        secondary: { type: array, items: { type: string, format: uuid } }
+    ScheduleInput:
+      type: object
+      required: [name, timezone, start_local, rotation]
+      properties:
+        name: { type: string, maxLength: 120 }
+        description: { type: string }
+        team_id: { type: [string, "null"], format: uuid }
+        timezone: { type: string, example: Asia/Jakarta }
+        start_local: { type: string, example: "2026-11-03T09:00" }
+        end_local: { type: [string, "null"], example: "2027-02-03T09:00", description: "null for open-ended" }
+        rotation: { $ref: "#/components/schemas/Rotation" }
+        reminder_offsets_minutes: { type: array, items: { type: integer }, maxItems: 5, example: [1440, 60] }
+        notify_on_boundary: { type: boolean, default: true }
+    ScheduleUpdate:
+      type: object
+      description: |
+        All fields optional. `timezone` and `start_local` can change only before the schedule starts.
+        A new `rotation` on a started schedule creates a new version effective `now` or at the
+        `next_rotation`; past shifts never change.
+      properties:
+        name: { type: string }
+        description: { type: string }
+        team_id: { type: [string, "null"], format: uuid }
+        status: { type: string, enum: [active, paused, archived] }
+        timezone: { type: string }
+        start_local: { type: string }
+        end_local: { type: [string, "null"] }
+        rotation: { $ref: "#/components/schemas/Rotation" }
+        apply_from: { type: string, enum: [now, next_rotation], default: now }
+        reminder_offsets_minutes: { type: array, items: { type: integer } }
+        notify_on_boundary: { type: boolean }
+    Shift:
+      type: object
+      properties:
+        layer: { $ref: "#/components/schemas/Layer" }
+        user_id: { type: string, format: uuid }
+        start: { type: string, format: date-time, description: Inclusive }
+        end: { type: string, format: date-time, description: Exclusive }
+        source:
+          type: object
+          properties:
+            kind: { type: string, enum: [rotation, override] }
+            index: { type: integer }
+            override_id: { type: string, format: uuid }
+    OnCallNow:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        primary: { oneOf: [{ $ref: "#/components/schemas/Shift" }, { type: "null" }] }
+        secondary: { oneOf: [{ $ref: "#/components/schemas/Shift" }, { type: "null" }] }
+        next_rotation_at: { type: [string, "null"], format: date-time }
+    Transition:
+      type: object
+      properties:
+        layer: { $ref: "#/components/schemas/Layer" }
+        at: { type: string, format: date-time }
+        previous_user_id: { type: [string, "null"], format: uuid }
+        user_id: { type: [string, "null"], format: uuid }
+        shift: { oneOf: [{ $ref: "#/components/schemas/Shift" }, { type: "null" }] }
+    Version:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        effective_from: { type: string, format: date-time }
+        interval: { type: integer }
+        unit: { type: string }
+        primary: { type: array, items: { type: string, format: uuid } }
+        secondary: { type: array, items: { type: string, format: uuid } }
+    Override:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        layer: { $ref: "#/components/schemas/Layer" }
+        user_id: { type: string, format: uuid }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        reason: { type: string }
+        canceled_at: { type: [string, "null"], format: date-time }
+    Schedule:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        team_id: { type: [string, "null"], format: uuid }
+        name: { type: string }
+        description: { type: string }
+        timezone: { type: string }
+        start_at: { type: string, format: date-time }
+        end_at: { type: [string, "null"], format: date-time }
+        start_local: { type: string }
+        end_local: { type: [string, "null"] }
+        status: { type: string, enum: [active, paused, archived] }
+        state: { type: string, enum: [not_started, active, ended, paused, archived] }
+        reminder_offsets_minutes: { type: array, items: { type: integer } }
+        notify_on_boundary: { type: boolean }
+        rotation: { oneOf: [{ $ref: "#/components/schemas/Version" }, { type: "null" }] }
+        on_call: { $ref: "#/components/schemas/OnCallNow" }
+    ScheduleDetail:
+      allOf:
+        - $ref: "#/components/schemas/Schedule"
+        - type: object
+          properties:
+            versions: { type: array, items: { $ref: "#/components/schemas/Version" } }
+            overrides: { type: array, items: { $ref: "#/components/schemas/Override" } }
+    Integration:
+      type: object
+      description: The webhook URL is write-only; only `webhook_hint` is returned.
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [discord] }
+        name: { type: string }
+        team_id: { type: [string, "null"], format: uuid }
+        enabled: { type: boolean }
+        events: { type: array, items: { type: string } }
+        mention_users: { type: boolean }
+        message_prefix: { type: string }
+        max_attempts: { type: integer }
+        webhook_hint: { type: string }
+        encrypted: { type: boolean }
+        last_delivery_status: { type: [string, "null"] }
+        last_delivery_at: { type: [string, "null"], format: date-time }
+    DiscordInput:
+      type: object
+      properties:
+        name: { type: string }
+        webhook_url: { type: string, description: "https://discord.com/api/webhooks/<id>/<token>" }
+        team_id: { type: [string, "null"], format: uuid }
+        enabled: { type: boolean }
+        events:
+          type: array
+          items:
+            type: string
+            enum: [schedule_created, schedule_updated, rotation_approaching, rotation_changed, primary_changed, secondary_changed, override_created, override_canceled, delivery_failed]
+        mention_users: { type: boolean }
+        message_prefix: { type: string, maxLength: 200 }
+        max_attempts: { type: integer, minimum: 1, maximum: 20 }
+    Delivery:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, sending, succeeded, failed, canceled] }
+        attempts: { type: integer }
+        max_attempts: { type: integer }
+        next_attempt_at: { type: string, format: date-time }
+        last_status_code: { type: [integer, "null"] }
+        last_error: { type: [string, "null"] }
+        delivered_at: { type: [string, "null"], format: date-time }
+        event_type: { type: string }
+        schedule_id: { type: [string, "null"], format: uuid }
+        schedule_name: { type: [string, "null"] }
+        integration_id: { type: string, format: uuid }
+        integration_name: { type: string }
+    Page:
+      type: object
+      properties:
+        items: { type: array, items: {} }
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean }
+
+paths:
+  /auth/providers:
+    get:
+      summary: Enabled sign-in methods
+      security: []
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { google: { type: boolean }, dev_login: { type: boolean } } } } } }
+  /auth/google/start:
+    get:
+      summary: Begin Google sign-in (redirects to Google)
+      security: []
+      parameters:
+        - { name: return_to, in: query, schema: { type: string }, description: Same-site path to return to }
+      responses:
+        "303": { description: Redirect to Google }
+  /auth/google/callback:
+    get:
+      summary: Google redirects here; creates a session and redirects into the app
+      security: []
+      responses:
+        "303": { description: Redirect to the app, or to /login?error=<code> }
+  /auth/dev/login:
+    post:
+      summary: Development-only sign-in (AUTH_DEV_LOGIN=true, never in production)
+      security: []
+      requestBody: { content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string }, name: { type: string } } } } } }
+      responses:
+        "200": { description: Session cookie set }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { description: Disabled }
+  /auth/logout:
+    post:
+      summary: End the current session (server-side)
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /me:
+    get:
+      summary: The signed-in user, CSRF token, memberships and permissions
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Me" } } } }
+        "401": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Update display name or Discord user id
+      requestBody: { content: { application/json: { schema: { type: object, properties: { display_name: { type: string }, discord_user_id: { type: string } } } } } }
+      responses: { "204": { $ref: "#/components/responses/NoContent" }, "422": { $ref: "#/components/responses/Error" } }
+  /me/sessions:
+    get:
+      summary: Your active sessions
+      responses: { "200": { description: OK } }
+  /me/sessions/{id}:
+    delete:
+      summary: Revoke one of your sessions
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /me/invitations:
+    get:
+      summary: Open invitations addressed to your verified email
+      responses: { "200": { description: OK } }
+  /invitations/accept:
+    post:
+      summary: Accept an invitation by link token or by id (email must match)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { token: { type: string }, id: { type: string, format: uuid } } } } } }
+      responses: { "200": { description: Joined }, "400": { $ref: "#/components/responses/Error" }, "403": { $ref: "#/components/responses/Error" } }
+  /organizations:
+    get:
+      summary: Organizations you belong to
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Organization" } } } } } }
+    post:
+      summary: Create an organization (you become owner)
+      requestBody: { content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string }, timezone: { type: string } } } } } }
+      responses: { "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Organization" } } } }, "403": { $ref: "#/components/responses/Error" } }
+  /organizations/{id}:
+    get:
+      summary: One of your organizations
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Organization" } } } }, "404": { $ref: "#/components/responses/Error" } }
+  /organizations/{id}/activate:
+    post:
+      summary: Make this organization active for the session
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /organizations/current:
+    patch:
+      summary: Rename the active organization or change its default timezone (owner)
+      responses: { "200": { description: OK } }
+  /organizations/current/transfer-ownership:
+    post:
+      summary: Make another member the owner; you become admin (owner)
+      requestBody: { content: { application/json: { schema: { type: object, required: [user_id], properties: { user_id: { type: string, format: uuid } } } } } }
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /members:
+    get:
+      summary: Members of the active organization
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Member" } } } } } }
+  /members/{id}:
+    patch:
+      summary: Change a member's role (admin; only owners manage admins)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { role: { $ref: "#/components/schemas/Role" } } } } } }
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+    delete:
+      summary: Remove a member (takes them out of rotations from now on)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /invitations:
+    get:
+      summary: Invitations of the active organization (admin)
+      responses: { "200": { description: OK } }
+    post:
+      summary: Invite an email address; returns a one-time link valid for 7 days (admin)
+      requestBody: { content: { application/json: { schema: { type: object, required: [email, role], properties: { email: { type: string }, role: { $ref: "#/components/schemas/Role" } } } } } }
+      responses: { "201": { description: Created; includes invite_url } }
+  /invitations/{id}:
+    delete:
+      summary: Revoke an invitation (admin)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /teams:
+    get:
+      summary: Teams
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Team" } } } } } }
+    post:
+      summary: Create a team (admin)
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/TeamInput" } } } }
+      responses: { "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Team" } } } } }
+  /teams/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: A team
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Team" } } } } }
+    patch:
+      summary: Rename or set members (admin)
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/TeamInput" } } } }
+      responses: { "200": { description: OK } }
+    delete:
+      summary: Delete a team (admin)
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /oncall/overview:
+    get:
+      summary: Current on-call for every schedule and the next 25 hand-overs
+      responses: { "200": { description: OK } }
+  /schedules:
+    get:
+      summary: Schedules with current on-call
+      parameters:
+        - { name: team_id, in: query, schema: { type: string, format: uuid } }
+        - { name: include_archived, in: query, schema: { type: boolean } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Schedule" } } } } } }
+    post:
+      summary: Create a schedule (scheduler)
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleInput" } } } }
+      responses: { "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleDetail" } } } }, "422": { $ref: "#/components/responses/Error" } }
+  /schedules/preview:
+    post:
+      summary: Shifts a configuration would produce, without saving
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleInput" } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: object, properties: { start_at: { type: string }, end_at: { type: [string, "null"] }, shifts: { type: array, items: { $ref: "#/components/schemas/Shift" } } } } } } } }
+  /schedules/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Schedule with versions and overrides
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleDetail" } } } } }
+    patch:
+      summary: Update a schedule (scheduler)
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleUpdate" } } } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ScheduleDetail" } } } } }
+    delete:
+      summary: Archive a schedule (history is kept) (scheduler)
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /schedules/{id}/on-call-now:
+    get:
+      summary: Who is on call at an instant (default now)
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: at, in: query, schema: { type: string, format: date-time } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/OnCallNow" } } } } }
+  /schedules/{id}/upcoming:
+    get:
+      summary: Upcoming hand-overs (next 180 days)
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 200 } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Transition" } } } } } }
+  /schedules/{id}/assignments:
+    get:
+      summary: Shifts intersecting [from, to) (at most 400 days)
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Shift" } } } } } }
+  /schedules/{id}/overrides:
+    post:
+      summary: Add an override (scheduler)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [layer, user_id, start_local, end_local]
+              properties:
+                layer: { $ref: "#/components/schemas/Layer" }
+                user_id: { type: string, format: uuid }
+                start_local: { type: string }
+                end_local: { type: string }
+                reason: { type: string }
+      responses: { "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Override" } } } } }
+  /schedules/{id}/overrides/{override_id}:
+    delete:
+      summary: Cancel an override (scheduler)
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: override_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /integrations:
+    get:
+      summary: Integrations (admin)
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Integration" } } } } } }
+  /integrations/events:
+    get:
+      summary: Event names integrations can subscribe to
+      responses: { "200": { description: OK } }
+  /integrations/discord:
+    post:
+      summary: Connect a Discord webhook (admin)
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/DiscordInput" } } } }
+      responses: { "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Integration" } } } }, "422": { $ref: "#/components/responses/Error" } }
+  /integrations/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      summary: Update an integration; send webhook_url only to replace it (admin)
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/DiscordInput" } } } }
+      responses: { "200": { description: OK } }
+    delete:
+      summary: Delete an integration (admin)
+      responses: { "204": { $ref: "#/components/responses/NoContent" } }
+  /integrations/{id}/test:
+    post:
+      summary: Send a test message now and report Discord's answer (admin)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Result, content: { application/json: { schema: { type: object, properties: { delivered: { type: boolean }, status_code: { type: [integer, "null"] }, error: { type: [string, "null"] } } } } } }
+  /notifications/deliveries:
+    get:
+      summary: Delivery history (admin)
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+        - { name: status, in: query, schema: { type: string, enum: [all, pending, sending, succeeded, failed, canceled] } }
+        - { name: integration_id, in: query, schema: { type: string, format: uuid } }
+      responses: { "200": { description: Page of deliveries } }
+  /notifications/deliveries/{id}/attempts:
+    get:
+      summary: Attempts for one delivery (admin)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: OK } }
+  /notifications/deliveries/{id}/retry:
+    post:
+      summary: Queue a failed delivery again (admin)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { $ref: "#/components/responses/NoContent" }, "409": { $ref: "#/components/responses/Error" } }
+  /notifications/health:
+    get:
+      summary: Delivery counts for the dashboard
+      responses: { "200": { description: OK } }
+  /audit-logs:
+    get:
+      summary: Audit log (admin)
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+        - { name: action, in: query, schema: { type: string }, description: Action prefix, e.g. "schedule." }
+      responses: { "200": { description: Page of entries } }

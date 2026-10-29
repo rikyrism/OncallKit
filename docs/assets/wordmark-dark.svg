@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="120" viewBox="0 0 600 120" role="img" aria-label="OncallKit">
+  <rect x="0" y="16" width="88" height="88" fill="#F2C200"/>
+  <path d="M24.75 79.25V30.75h13.75v34.75h34.75v13.75z" fill="#141413"/>
+  <text x="112" y="89" fill="#EEEEE8" font-family="'Instrument Sans', 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="84" font-weight="600" letter-spacing="-3">OncallKit</text>
+</svg>

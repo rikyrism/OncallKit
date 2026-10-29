@@ -1,0 +1,47 @@
+[package]
+name = "oncallkit-api"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "OncallKit API server and background worker"
+publish = false
+
+[[bin]]
+name = "oncallkit"
+path = "src/main.rs"
+
+[lib]
+name = "oncallkit"
+path = "src/lib.rs"
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = "1"
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = { version = "0.10", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
+openidconnect = "4"
+prometheus = { version = "0.13", default-features = false }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
+thiserror = "2"
+time = "0.3"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "request-id", "timeout", "limit", "set-header", "propagate-header", "sensitive-headers"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+wiremock = "0.6"
