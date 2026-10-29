@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # OncallKit web app: build static assets with Node, serve them with unprivileged nginx, which also
 # proxies /api to the API so the browser sees a single origin.
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
