@@ -122,7 +122,7 @@ impl DiscordClient {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(10))
             .connect_timeout(Duration::from_secs(5))
-            .user_agent(concat!("OncallKit/", env!("CARGO_PKG_VERSION"), " (+https://github.com/oncallkit/oncallkit)"))
+            .user_agent(concat!("OncallKit/", env!("CARGO_PKG_VERSION"), " (+https://github.com/rikyrism/OncallKit)"))
             .build()
             .expect("HTTP client");
         DiscordClient { http, base_override }

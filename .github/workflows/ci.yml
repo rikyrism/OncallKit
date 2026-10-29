@@ -65,6 +65,22 @@ jobs:
       - run: npm run build
       - run: npm audit --audit-level=high --omit=dev
 
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint deploy/helm/oncallkit --strict --set publicUrl=https://oncall.example.com --set postgresql.enabled=true --set google.clientId=id --set google.clientSecret=secret
+      - name: Render with common configurations
+        run: |
+          chart=deploy/helm/oncallkit
+          helm template t $chart --set publicUrl=https://oncall.example.com --set postgresql.enabled=true --set google.clientId=id --set google.clientSecret=secret > /dev/null
+          helm template t $chart --set publicUrl=https://oncall.example.com --set google.clientId=id --set google.clientSecret=secret --set database.url=postgres://u:p@db/oncallkit \
+            --set worker.enabled=true --set ingress.enabled=true --set ingress.tls.enabled=true > /dev/null
+          helm template t $chart --set publicUrl=https://oncall.example.com --set existingSecret=oncallkit > /dev/null
+          # Refused configurations must fail.
+          ! helm template t $chart --set publicUrl=http://insecure.example.com --set postgresql.enabled=true 2>/dev/null
+
   images:
     runs-on: ubuntu-latest
     needs: [backend, frontend]

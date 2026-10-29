@@ -35,7 +35,7 @@ Every instance of `oncallkit serve` runs a worker unless `RUN_WORKER=false`. Run
 
 The rate limiter for sign-in endpoints is per process; with several API replicas, also rate-limit `/api/v1/auth/` at your proxy.
 
-On Kubernetes, use `/healthz` as the liveness probe and `/readyz` as the readiness probe. The container runs as UID 10001 and needs no writable filesystem.
+On Kubernetes, use the Helm chart ([kubernetes.md](kubernetes.md)); it already sets `/healthz` as the liveness probe and `/readyz` as the readiness probe. The container runs as UID 10001 and needs no writable filesystem.
 
 ## Backups and restore
 

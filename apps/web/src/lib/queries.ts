@@ -1,7 +1,7 @@
 import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { api, setCsrfToken } from "./api";
-import type { Integration, Me, Member, NotificationHealth, Overview, Permission, Schedule, Team } from "./types";
+import type { Integration, Me, Member, NotificationHealth, Overview, Permission, Schedule, SwapRequest, Team } from "./types";
 
 export const keys = {
   me: ["me"] as const,
@@ -12,6 +12,7 @@ export const keys = {
   overview: ["overview"] as const,
   integrations: ["integrations"] as const,
   health: ["notification-health"] as const,
+  swaps: ["swap-requests"] as const,
 };
 
 export function useMe(options?: Partial<UseQueryOptions<Me | null>>) {
@@ -72,4 +73,9 @@ export function useIntegrations(enabled = true) {
 
 export function useNotificationHealth() {
   return useQuery({ queryKey: keys.health, queryFn: () => api.get<NotificationHealth>("/notifications/health"), refetchInterval: 30_000 });
+}
+
+/** Swap requests you made or received. */
+export function useSwaps() {
+  return useQuery({ queryKey: keys.swaps, queryFn: () => api.get<SwapRequest[]>("/swap-requests"), refetchInterval: 60_000 });
 }

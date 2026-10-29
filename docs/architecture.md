@@ -44,7 +44,10 @@ Because nothing is stored per shift, there is no job that "moves" the on-call pe
 - Before a schedule starts, editing the rotation replaces its configuration.
 - After it starts, editing the rotation inserts a new version effective **now** or at the **next hand-over** (the editor chooses). Earlier versions are untouched, so past assignments never change. Versions scheduled after the new one are replaced.
 - The start and timezone are frozen once a schedule has started.
-- Removing a member from the organization starts a new version without them (now), edits not-yet-started versions in place, and cancels their future overrides.
+- Removing a member from the organization starts a new version without them (now), edits not-yet-started versions in place, and cancels their future overrides. It is refused while they are the only person in the primary rotation of a running schedule, so coverage never ends silently.
+- Cancelling an override that has already begun keeps the part that happened: it applies until the moment it was cancelled.
+- A shift swap is a request until the colleague accepts; accepting re-checks the schedule inside the transaction (with the schedule row locked) and then creates ordinary overrides, so the engine and notifications need nothing swap-specific. Requests expire once their shift begins.
+- The first rotation version always covers the schedule from its start, so moving the start of a schedule that has not begun never leaves a gap.
 - Archiving a schedule stops coverage and withdraws pending notifications but keeps all rows.
 
 ## Notifications

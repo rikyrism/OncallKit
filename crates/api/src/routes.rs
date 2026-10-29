@@ -14,7 +14,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{audit, auth, integrations, notifications, observability, organizations, schedules, state::AppState, teams};
+use crate::{audit, auth, calendar, integrations, notifications, observability, organizations, schedules, state::AppState, swaps, teams};
 
 pub fn router(state: AppState) -> Router {
     let request_id = HeaderName::from_static("x-request-id");
@@ -54,6 +54,11 @@ pub fn router(state: AppState) -> Router {
         .route("/schedules/{id}/assignments", get(schedules::assignments))
         .route("/schedules/{id}/overrides", post(schedules::create_override))
         .route("/schedules/{id}/overrides/{override_id}", delete(schedules::cancel_override))
+        // shift swaps
+        .route("/swap-requests", get(swaps::list).post(swaps::create))
+        .route("/swap-requests/{id}/accept", post(swaps::accept))
+        .route("/swap-requests/{id}/decline", post(swaps::decline))
+        .route("/swap-requests/{id}/cancel", post(swaps::cancel))
         // integrations & notifications
         .route("/integrations", get(integrations::list))
         .route("/integrations/events", get(integrations::event_options))
@@ -65,6 +70,10 @@ pub fn router(state: AppState) -> Router {
         .route("/notifications/deliveries/{id}/retry", post(notifications::routes::retry_delivery))
         .route("/notifications/health", get(notifications::routes::health))
         .route("/audit-logs", get(audit::list))
+        // calendar subscriptions
+        .route("/calendar-feeds", get(calendar::list).post(calendar::create))
+        .route("/calendar-feeds/{id}", delete(calendar::revoke))
+        .route("/calendar.ics", get(calendar::feed))
         .route("/openapi.yaml", get(openapi));
 
     Router::new()

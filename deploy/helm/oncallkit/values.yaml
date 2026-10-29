@@ -1,0 +1,135 @@
+# OncallKit Helm chart. The minimum for a working install:
+#
+#   helm install oncallkit oci://registry-1.docker.io/ilhamriky/oncallkit \
+#     --set publicUrl=https://oncall.example.com \
+#     --set ingress.enabled=true --set ingress.className=nginx \
+#     --set google.clientId=... --set google.clientSecret=...
+#
+# See docs/kubernetes.md for the full guide.
+
+# The address people open OncallKit at. Used for sign-in redirects, cookies and links in Discord
+# messages. Must be https when appEnv is production.
+publicUrl: ""
+
+image:
+  registry: docker.io
+  api:
+    repository: ilhamriky/oncallkit-api
+  web:
+    repository: ilhamriky/oncallkit-web
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# development | production. Production refuses http PUBLIC_URL, a missing encryption key and
+# development sign-in.
+appEnv: production
+
+auth:
+  # open | invite_only | domains (defaults to invite_only in production when empty)
+  registrationMode: ""
+  # For registrationMode=domains: ["example.com"]
+  allowedEmailDomains: []
+  # anyone | instance_admins (defaults to instance_admins in production when empty)
+  orgCreation: ""
+  sessionTtlHours: 168
+  # Sign in with any email address, without Google. Development only; refused in production.
+  devLogin: false
+
+google:
+  clientId: ""
+  clientSecret: ""
+
+# Secrets. Either name an existing Secret, or let the chart create one from the values below.
+# An existing Secret may hold these keys: ENCRYPTION_KEY, DATABASE_URL, GOOGLE_CLIENT_ID,
+# GOOGLE_CLIENT_SECRET, METRICS_TOKEN.
+existingSecret: ""
+# 32 random bytes, base64 (openssl rand -base64 32). Encrypts Discord webhook URLs at rest.
+# When empty, the chart generates one on install and keeps it on every upgrade. Back it up:
+# without it stored webhooks cannot be decrypted.
+encryptionKey: ""
+# If set, /metrics requires "Authorization: Bearer <token>".
+metricsToken: ""
+
+database:
+  # External PostgreSQL (recommended in production), e.g.
+  # postgres://oncallkit:password@db.example.com:5432/oncallkit?sslmode=require
+  # Ignored when postgresql.enabled is true. Can also come from existingSecret (DATABASE_URL).
+  url: ""
+  maxConnections: 10
+
+# A single-instance PostgreSQL inside the release, for trying OncallKit out or small teams.
+# For production, prefer a managed database and set database.url instead.
+postgresql:
+  enabled: false
+  image: postgres:16-alpine
+  # Generated on install and kept on upgrades when empty.
+  password: ""
+  persistence:
+    size: 8Gi
+    storageClass: ""
+  resources: {}
+
+api:
+  replicaCount: 2
+  # Every API replica also runs the background worker. That is safe (workers never double-send);
+  # set worker.enabled=true to run the worker as its own Deployment instead.
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+worker:
+  enabled: false
+  replicaCount: 1
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { memory: 128Mi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+web:
+  replicaCount: 2
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { memory: 64Mi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+logJson: true
+
+service:
+  type: ClusterIP
+  port: 80
+
+# The web service serves the app and proxies /api to the API, so one host and one path are enough.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Defaults to the host of publicUrl.
+  host: ""
+  tls:
+    enabled: false
+    # Secret holding the certificate, e.g. created by cert-manager.
+    secretName: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: { type: RuntimeDefault }
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: [ALL] }

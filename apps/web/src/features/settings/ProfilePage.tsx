@@ -5,6 +5,7 @@ import { keys, useMe } from "@/lib/queries";
 import type { SessionInfo } from "@/lib/types";
 import { Button, Field, Input, Loading, PageHeader, Panel, Tag, useToast } from "@/components/ui";
 import { browserTimezone, formatDateTime, relative } from "@/lib/time";
+import { CalendarFeedsPanel } from "./CalendarFeeds";
 
 export function ProfilePage() {
   const { data: me } = useMe();
@@ -57,6 +58,7 @@ export function ProfilePage() {
           </div>
         </form>
       </Panel>
+      <CalendarFeedsPanel />
       <Panel title="Sessions">
         {sessions.isLoading && <Loading />}
         <ul className="flex flex-col gap-4">

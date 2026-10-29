@@ -39,9 +39,11 @@ Put your engineers in order, choose how often the pager moves, and OncallKit wor
 - Separate primary and secondary rotations, each with its own order.
 - Any IANA timezone. A 09:00 WIB hand-over stays at 09:00 through daylight-saving changes elsewhere.
 - Overrides for leave, holidays and swaps; the rotation resumes by itself afterwards.
+- Shift swaps between colleagues: ask someone to cover a shift (or trade one of yours for one of theirs); when they accept, the overrides are made for you.
 - "Who is on call at T?" is calculated from the schedule, never stored in a field a cron job updates, so it is correct after restarts and missed timers.
 - Edits start a new version from now (or from the next hand-over). Past shifts never change.
 - A live preview while you build a schedule, computed by the same engine that runs in production.
+- Subscribe from Google Calendar, Apple Calendar or Outlook: a private iCal link for your own shifts or a whole schedule, kept up to date automatically.
 
 **Discord that never lies**
 - Hand-over announcements, reminders before a shift (e.g. 24 h and 1 h), schedule changes and overrides, each switchable per channel.
@@ -131,6 +133,20 @@ docker compose up -d --build
 docker compose exec api oncallkit bootstrap-admin --email you@example.com
 ```
 
+### Kubernetes
+
+A Helm chart is published to Docker Hub with every release, next to multi-arch (amd64, arm64) images `ilhamriky/oncallkit-api` and `ilhamriky/oncallkit-web`:
+
+```bash
+helm install oncallkit oci://registry-1.docker.io/ilhamriky/oncallkit -n oncallkit --create-namespace \
+  --set publicUrl=https://oncall.example.com \
+  --set database.url='postgres://…' \
+  --set google.clientId=… --set google.clientSecret=… \
+  --set ingress.enabled=true --set ingress.className=nginx
+```
+
+Add `--set postgresql.enabled=true` instead of `database.url` to try it with a bundled database. See [docs/kubernetes.md](docs/kubernetes.md) for secrets, TLS, scaling and upgrades.
+
 In production the server refuses an http `PUBLIC_URL`, a missing encryption key and development sign-in, and defaults to invite-only registration. A small VM (**1 vCPU, 1 GB RAM**) should be enough to start (it has not been load-tested yet). Workers can run on any number of instances; they never double-send. See [docs/deployment.md](docs/deployment.md) for the checklist, scaling, backups, upgrades and troubleshooting, and [docs/google-oauth.md](docs/google-oauth.md) and [docs/discord.md](docs/discord.md) for setting up the integrations.
 
 ## API
@@ -150,7 +166,7 @@ curl -b cookies.txt "https://oncall.example.com/api/v1/schedules/$SCHEDULE_ID/on
 }
 ```
 
-Also available: schedules and their previews, upcoming hand-overs, assignments over a range, overrides, teams, members, invitations, integrations, delivery history and the audit log. Requests other than GET carry the session's CSRF token in `X-CSRF-Token`. The full contract is in [`docs/openapi.yaml`](docs/openapi.yaml), served at `/api/v1/openapi.yaml`.
+Also available: schedules and their previews, shift swap requests, iCalendar subscription links (`/calendar.ics`), upcoming hand-overs, assignments over a range, overrides, teams, members, invitations, integrations, delivery history and the audit log. Requests other than GET carry the session's CSRF token in `X-CSRF-Token`. The full contract is in [`docs/openapi.yaml`](docs/openapi.yaml), served at `/api/v1/openapi.yaml`.
 
 ## How it works
 
@@ -167,7 +183,7 @@ Browser (React)                    nginx               oncallkit (one Rust binar
 - **Notifications are planned ahead.** The planner writes upcoming hand-overs and reminders to the database with deterministic keys like `handover:{schedule}:{time}:{who}`, so planning twice, or on two workers, never duplicates, and an edit withdraws reminders that no longer apply.
 - **Delivery uses leases.** Workers claim rows with `FOR UPDATE SKIP LOCKED` and a 60-second lease; a crashed worker's work is picked up by the next one. Each attempt and Discord's answer are recorded.
 
-Deeper notes: [architecture](docs/architecture.md), [deployment](docs/deployment.md), [Discord](docs/discord.md), [Google sign-in](docs/google-oauth.md), [known limitations](docs/known-limitations.md), [roadmap](docs/roadmap.md).
+Deeper notes: [architecture](docs/architecture.md), [deployment](docs/deployment.md), [Kubernetes](docs/kubernetes.md), [Discord](docs/discord.md), [Google sign-in](docs/google-oauth.md), [known limitations](docs/known-limitations.md), [roadmap](docs/roadmap.md).
 
 ## Project structure
 
@@ -181,7 +197,8 @@ crates/api/            Rust backend (Axum, Tokio, SQLx)
 migrations/            PostgreSQL migrations (embedded in the binary)
 apps/web/              React + TypeScript + Vite + Tailwind
   src/features/        dashboard, schedules, teams, users, integrations, notifications, audit, settings
-deploy/docker/         Dockerfiles and nginx config
+deploy/docker/         Dockerfiles and the nginx config template
+deploy/helm/oncallkit/ Helm chart
 scripts/               tunnel.sh for sharing from a laptop, cargo-docker.sh
 docs/                  Architecture, deployment, OpenAPI, integrations, limitations, roadmap
 ```

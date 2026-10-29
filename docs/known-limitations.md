@@ -24,6 +24,18 @@ OncallKit 0.1 is early software. These are the gaps we know about.
 - A schedule's start and timezone cannot change after it starts; create a new schedule instead.
 - The planner reads all non-archived schedules every minute. That is fine for hundreds of schedules; thousands would want incremental planning.
 
+## Calendar feeds and swaps
+
+- A calendar link works for anyone who has it, like a password. Revoke it from the profile page if it leaks.
+- Calendar apps decide how often they re-read a feed. Apple Calendar and Outlook follow the hourly hint; Google Calendar can take up to a day, so recent swaps and overrides may show late there. OncallKit itself is always current.
+- A new swap request is shown in the app (dashboard and Shift swaps page) but not announced in Discord. Accepted swaps are announced like any override.
+- The swap form offers whole shifts. The API accepts any window the requester holds completely.
+
+## Kubernetes
+
+- The bundled PostgreSQL (`postgresql.enabled`) is a single instance without backups or failover. Use a managed database for anything you rely on.
+- Rate limiting is per pod, as noted above; put limits on the ingress for the sign-in and calendar endpoints if the instance is public.
+
 ## Other
 
 - No GitHub or generic OIDC sign-in yet (the code is structured for it).

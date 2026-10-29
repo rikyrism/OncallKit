@@ -5,6 +5,7 @@
 
 pub mod audit;
 pub mod auth;
+pub mod calendar;
 pub mod config;
 pub mod crypto;
 pub mod error;
@@ -18,6 +19,7 @@ pub mod routes;
 pub mod schedules;
 pub mod seed;
 pub mod state;
+pub mod swaps;
 pub mod teams;
 pub mod worker;
 

@@ -49,9 +49,17 @@ pub async fn dispatch_due_events(state: &AppState) -> anyhow::Result<usize> {
     for event in &events {
         let mut tx = state.db.begin().await?;
         let stale_reminder = event.event_type == EventKind::RotationApproaching.as_str() && event.payload.at.is_some_and(|at| at <= Utc::now());
-        let status = if stale_reminder {
-            "skipped"
-        } else {
+        let status = if stale_reminder { "skipped" } else { "dispatched" };
+        // Claim the event first: if the planner superseded it after we leased it, nothing is sent.
+        let still_pending =
+            sqlx::query("UPDATE notification_events SET status = $2, dispatched_at = now(), locked_until = NULL WHERE id = $1 AND status = 'pending'")
+                .bind(event.id)
+                .bind(status)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
+                > 0;
+        if still_pending && !stale_reminder {
             sqlx::query(
                 "INSERT INTO notification_deliveries (event_id, integration_id, organization_id)
                  SELECT $1, i.id, i.organization_id FROM integrations i
@@ -67,13 +75,7 @@ pub async fn dispatch_due_events(state: &AppState) -> anyhow::Result<usize> {
             .bind(event.exclude_integration_id)
             .execute(&mut *tx)
             .await?;
-            "dispatched"
-        };
-        sqlx::query("UPDATE notification_events SET status = $2, dispatched_at = now(), locked_until = NULL WHERE id = $1 AND status = 'pending'")
-            .bind(event.id)
-            .bind(status)
-            .execute(&mut *tx)
-            .await?;
+        }
         tx.commit().await?;
         state.metrics.jobs_processed.with_label_values(&["dispatch_event", status]).inc();
     }

@@ -566,55 +566,87 @@ pub async fn create_override(
     if body.reason.chars().count() > 500 {
         return Err(AppError::validation("reason", "keep the reason under 500 characters"));
     }
-    let replaced = loaded.spec.on_call_at(body.layer, start).map(|s| s.user_id);
-
     let mut tx = state.db.begin().await?;
     ensure_members(&mut tx, ctx.organization_id, &[body.user_id]).await?;
+    let row = insert_override(
+        &mut tx,
+        &loaded,
+        NewOverride { layer: body.layer, user_id: body.user_id, start, end, reason: body.reason.trim() },
+        ctx.user_id(),
+        &ctx.user.display_name,
+    )
+    .await?;
+    tx.commit().await?;
+    planner::plan_schedule_by_id(&state, id).await.ok();
+    Ok((StatusCode::CREATED, Json(row)))
+}
+
+pub struct NewOverride<'a> {
+    pub layer: Layer,
+    pub user_id: Uuid,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub reason: &'a str,
+}
+
+/// Insert an override, record it in the audit log and announce it. Shared by overrides created
+/// directly and by accepted shift swaps. The caller re-plans the schedule after committing.
+pub async fn insert_override(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    loaded: &LoadedSchedule,
+    o: NewOverride<'_>,
+    actor_id: Uuid,
+    actor_name: &str,
+) -> AppResult<OverrideRow> {
+    let id = loaded.row.id;
+    let replaced = loaded.spec.on_call_at(o.layer, o.start).map(|s| s.user_id);
     let row: OverrideRow = sqlx::query_as(
         "INSERT INTO schedule_overrides (schedule_id, layer, user_id, start_at, end_at, reason, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id, layer, user_id, start_at, end_at, reason, created_at, created_by, canceled_at",
     )
     .bind(id)
-    .bind(body.layer.as_str())
-    .bind(body.user_id)
-    .bind(start)
-    .bind(end)
-    .bind(body.reason.trim())
-    .bind(ctx.user_id())
-    .fetch_one(&mut *tx)
+    .bind(o.layer.as_str())
+    .bind(o.user_id)
+    .bind(o.start)
+    .bind(o.end)
+    .bind(o.reason)
+    .bind(actor_id)
+    .fetch_one(&mut **tx)
     .await?;
     audit::record_tx(
-        &mut tx,
-        Some(ctx.organization_id),
-        Some(ctx.user_id()),
+        tx,
+        Some(loaded.row.organization_id),
+        Some(actor_id),
         "override.created",
         "schedule",
         Some(id),
-        json!({ "override_id": row.id, "user_id": body.user_id, "layer": body.layer.as_str() }),
+        json!({ "override_id": row.id, "user_id": o.user_id, "layer": o.layer.as_str() }),
     )
     .await?;
-    let people = planner::load_people(&mut tx, &[Some(body.user_id), replaced].into_iter().flatten().collect::<Vec<_>>()).await?;
-    let person = people.get(&body.user_id).cloned();
+    let people = planner::load_people(tx, &[Some(o.user_id), replaced].into_iter().flatten().collect::<Vec<_>>()).await?;
+    let person = people.get(&o.user_id).cloned();
+    let previous = replaced.and_then(|r| people.get(&r).cloned());
+    let primary = o.layer == Layer::Primary;
     let payload = EventPayload {
         schedule_id: Some(id),
         schedule_name: Some(loaded.row.name.clone()),
         timezone: Some(loaded.row.timezone.clone()),
-        at: Some(start),
-        shift_end: Some(end),
-        layer: Some(body.layer.as_str().into()),
-        primary: if body.layer == Layer::Primary { person.clone() } else { None },
-        secondary: if body.layer == Layer::Secondary { person } else { None },
-        previous_primary: if body.layer == Layer::Primary { replaced.and_then(|r| people.get(&r).cloned()) } else { None },
-        previous_secondary: if body.layer == Layer::Secondary { replaced.and_then(|r| people.get(&r).cloned()) } else { None },
-        reason: Some(body.reason.trim().to_string()).filter(|r| !r.is_empty()),
-        actor_name: Some(ctx.user.display_name.clone()),
+        at: Some(o.start),
+        shift_end: Some(o.end),
+        layer: Some(o.layer.as_str().into()),
+        primary: if primary { person.clone() } else { None },
+        secondary: if primary { None } else { person },
+        previous_primary: if primary { previous.clone() } else { None },
+        previous_secondary: if primary { None } else { previous },
+        reason: Some(o.reason.to_string()).filter(|r| !r.is_empty()),
+        actor_name: Some(actor_name.to_string()),
         ..Default::default()
     };
     notifications::enqueue(
-        &mut tx,
+        tx,
         NewEvent {
-            organization_id: ctx.organization_id,
+            organization_id: loaded.row.organization_id,
             schedule_id: Some(id),
             team_id: loaded.row.team_id,
             kind: EventKind::OverrideCreated,
@@ -626,9 +658,7 @@ pub async fn create_override(
         },
     )
     .await?;
-    tx.commit().await?;
-    planner::plan_schedule_by_id(&state, id).await.ok();
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok(row)
 }
 
 pub async fn cancel_override(State(state): State<AppState>, ctx: OrgContext, Path((id, override_id)): Path<(Uuid, Uuid)>) -> AppResult<StatusCode> {
