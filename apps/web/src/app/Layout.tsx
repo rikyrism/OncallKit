@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, CalendarClock, History, LayoutGrid, LogOut, Menu, Moon, Plug, ScrollText, Settings, Sun, SunMoon, Users, UsersRound, X } from "lucide-react";
+import { ArrowLeftRight, Bell, CalendarClock, History, LayoutGrid, LogOut, Menu, Moon, Plug, ScrollText, Settings, Sun, SunMoon, Users, UsersRound, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useCan, useMe } from "@/lib/queries";
 import type { Permission } from "@/lib/types";
@@ -11,6 +11,7 @@ import { useTheme } from "./theme";
 const NAV: { to: string; label: string; icon: typeof LayoutGrid; permission?: Permission }[] = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/schedules", label: "Schedules", icon: CalendarClock },
+  { to: "/swaps", label: "Shift swaps", icon: ArrowLeftRight },
   { to: "/teams", label: "Teams", icon: UsersRound },
   { to: "/users", label: "Users", icon: Users },
   { to: "/integrations", label: "Integrations", icon: Plug, permission: "view_integrations" },

@@ -10,7 +10,10 @@ use sqlx::{PgExecutor, Postgres, Transaction};
 use uuid::Uuid;
 
 use super::engine::{Layer, Override, RotationUnit, RotationVersion, ScheduleSpec};
-use crate::{audit, error::AppResult};
+use crate::{
+    audit,
+    error::{AppError, AppResult},
+};
 
 #[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 pub struct ScheduleRow {
@@ -148,10 +151,15 @@ pub fn build_spec(row: &ScheduleRow, versions: &[VersionView], overrides: &[Over
                 secondary: v.secondary.clone(),
             })
             .collect(),
+        // A cancelled override still covers the part that had already happened when it was
+        // cancelled, so cancelling one mid-way never rewrites past shifts.
         overrides
             .iter()
-            .filter(|o| o.canceled_at.is_none())
-            .filter_map(|o| Layer::parse(&o.layer).map(|layer| Override { id: o.id, layer, user_id: o.user_id, start: o.start_at, end: o.end_at }))
+            .filter_map(|o| {
+                let end = o.canceled_at.map_or(o.end_at, |c| c.min(o.end_at));
+                let layer = Layer::parse(&o.layer)?;
+                (end > o.start_at).then_some(Override { id: o.id, layer, user_id: o.user_id, start: o.start_at, end })
+            })
             .collect(),
     )
 }
@@ -188,7 +196,7 @@ pub async fn load_one(db: &sqlx::PgPool, organization_id: Uuid, schedule_id: Uui
         .bind(organization_id)
         .fetch_optional(db)
         .await?
-        .ok_or(crate::error::AppError::NotFound)?;
+        .ok_or(AppError::NotFound)?;
     Ok(assemble(db, vec![row]).await?.pop().expect("one schedule"))
 }
 
@@ -237,8 +245,8 @@ pub async fn insert_version(
 /// Future overrides assigned to the user are cancelled.
 pub async fn remove_user_from_rotations(tx: &mut Transaction<'_, Postgres>, organization_id: Uuid, user_id: Uuid, actor: Uuid) -> AppResult<()> {
     let now = Utc::now();
-    let schedule_ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT DISTINCT v.schedule_id FROM schedule_versions v
+    let schedules: Vec<(Uuid, String, bool)> = sqlx::query_as(
+        "SELECT DISTINCT s.id, s.name, s.status <> 'archived' AND (s.end_at IS NULL OR s.end_at > now()) FROM schedule_versions v
          JOIN schedule_rotation_participants p ON p.version_id = v.id
          JOIN schedules s ON s.id = v.schedule_id
          WHERE s.organization_id = $1 AND p.user_id = $2",
@@ -248,7 +256,24 @@ pub async fn remove_user_from_rotations(tx: &mut Transaction<'_, Postgres>, orga
     .fetch_all(&mut **tx)
     .await?;
 
-    for schedule_id in schedule_ids {
+    // Refuse to leave a running schedule with nobody in its primary rotation: that would
+    // silently end on-call coverage.
+    let mut uncovered = Vec::new();
+    for (schedule_id, name, running) in &schedules {
+        let versions = load_versions(tx, &[*schedule_id]).await?.remove(schedule_id).unwrap_or_default();
+        let current = versions.iter().rposition(|v| v.effective_from <= now).unwrap_or(0);
+        if *running && versions[current..].iter().any(|v| v.primary == [user_id]) {
+            uncovered.push(name.clone());
+        }
+    }
+    if !uncovered.is_empty() {
+        return Err(AppError::Conflict(format!(
+            "this person is the only one in the primary rotation of {}; add someone else to the rotation first",
+            uncovered.join(", ")
+        )));
+    }
+
+    for (schedule_id, _, _) in schedules {
         let versions = load_versions(tx, &[schedule_id]).await?.remove(&schedule_id).unwrap_or_default();
         let current = versions.iter().rfind(|v| v.effective_from <= now).cloned();
         for v in versions.iter().filter(|v| v.effective_from > now) {

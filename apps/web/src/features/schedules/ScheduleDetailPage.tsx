@@ -9,6 +9,8 @@ import { Button, ConfirmDialog, Dialog, ErrorNote, Field, Input, LinkButton, Loa
 import { browserTimezone, formatDateTime, formatDay, formatLong, formatTime, localDateKey, relative, toLocalInput, zoneLabel } from "@/lib/time";
 import { Timeline, toneFor } from "./Timeline";
 import { STATE_LABEL, rotationText } from "./SchedulesPage";
+import { SubscribeDialog } from "@/features/settings/CalendarFeeds";
+import { RequestSwapDialog } from "@/features/swaps/SwapsPage";
 
 type View = "timeline" | "calendar" | "list";
 
@@ -334,6 +336,8 @@ export function ScheduleDetailPage() {
   const [tzChoice, setTzChoice] = useState<"schedule" | "browser">("schedule");
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [subscribeOpen, setSubscribeOpen] = useState(false);
+  const [swapOpen, setSwapOpen] = useState(false);
 
   const range = useMemo(() => {
     const from = new Date(Date.now() - 2 * 86_400_000);
@@ -395,18 +399,26 @@ export function ScheduleDetailPage() {
           </div>
           {s.description && <p className="mt-3 max-w-2xl text-lg">{s.description}</p>}
         </div>
-        {editable && (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="primary" onClick={() => setOverrideOpen(true)}>
-              Add override
-            </Button>
-            <LinkButton to={`/schedules/${id}/edit`}>Edit</LinkButton>
-            <Button onClick={() => setStatus.mutate(s.status === "paused" ? "active" : "paused")}>{s.status === "paused" ? "Resume notifications" : "Pause notifications"}</Button>
+        <div className="flex flex-wrap gap-2">
+          {editable && (
+            <>
+              <Button variant="primary" onClick={() => setOverrideOpen(true)}>
+                Add override
+              </Button>
+              <LinkButton to={`/schedules/${id}/edit`}>Edit</LinkButton>
+              <Button onClick={() => setStatus.mutate(s.status === "paused" ? "active" : "paused")}>{s.status === "paused" ? "Resume notifications" : "Pause notifications"}</Button>
+            </>
+          )}
+          <Button onClick={() => setSwapOpen(true)}>Ask for a swap</Button>
+          <Button onClick={() => setSubscribeOpen(true)}>Add to calendar</Button>
+          {editable && (
             <Button variant="ghost" onClick={() => setArchiveOpen(true)}>
               Archive
             </Button>
-          </div>
-        )}
+          )}
+        </div>
+        <SubscribeDialog open={subscribeOpen} onClose={() => setSubscribeOpen(false)} scheduleId={s.id} scheduleName={s.name} />
+        <RequestSwapDialog open={swapOpen} onClose={() => setSwapOpen(false)} scheduleId={s.id} />
       </header>
 
       <OnCallField s={s} displayTz={displayTz} />

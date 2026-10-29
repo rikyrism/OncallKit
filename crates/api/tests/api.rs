@@ -222,13 +222,63 @@ async fn editing_an_active_schedule_keeps_history(pool: PgPool) {
     let (_, after) = app.get(&format!("/api/v1/schedules/{id}/on-call-now?at={past}"), &owner).await;
     assert_eq!(before["primary"], after["primary"], "past assignments must not change");
 
+    // The only person in a running primary rotation cannot be removed: coverage would end silently.
+    let (status, body) = app.delete(&format!("/api/v1/members/{budi}"), &owner).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let (status, _) = app
+        .patch(
+            &format!("/api/v1/schedules/{id}"),
+            &owner,
+            json!({ "rotation": { "interval": 1, "unit": "days", "primary": [budi, andi] }, "apply_from": "now" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
     // Removing a member takes them out of rotations from now on, keeping history.
     let (status, _) = app.delete(&format!("/api/v1/members/{budi}"), &owner).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let (_, detail) = app.get(&format!("/api/v1/schedules/{id}"), &owner).await;
-    assert!(detail["on_call"]["primary"].is_null());
+    assert_eq!(detail["on_call"]["primary"]["user_id"], andi.as_str());
     let (_, after) = app.get(&format!("/api/v1/schedules/{id}/on-call-now?at={past}"), &owner).await;
     assert_eq!(before["primary"], after["primary"]);
+}
+
+#[sqlx::test(migrator = "oncallkit::MIGRATOR")]
+async fn cancelling_a_running_override_keeps_its_past(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let owner = app.login("riky@acme.test").await;
+    let people = app.org_with_members(&owner, &[("andi@acme.test", "member")]).await;
+    let riky = app.user_id(&owner).await;
+    let andi = people[0].1.clone();
+
+    let tz: chrono_tz::Tz = "UTC".parse().unwrap();
+    let local = |t: chrono::DateTime<Utc>| t.with_timezone(&tz).format("%Y-%m-%dT%H:%M").to_string();
+    let start = Utc::now() - Duration::days(3);
+    let (_, created) = app
+        .post(
+            "/api/v1/schedules",
+            &owner,
+            json!({ "name": "Weekly", "timezone": "UTC", "start_local": local(start), "rotation": { "interval": 7, "unit": "days", "primary": [riky] } }),
+        )
+        .await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let (status, ov) = app
+        .post(
+            &format!("/api/v1/schedules/{id}/overrides"),
+            &owner,
+            json!({ "layer": "primary", "user_id": andi, "start_local": local(Utc::now() - Duration::hours(5)), "end_local": local(Utc::now() + Duration::hours(5)) }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{ov}");
+    let (status, _) = app.delete(&format!("/api/v1/schedules/{id}/overrides/{}", ov["id"].as_str().unwrap()), &owner).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let two_hours_ago = (Utc::now() - Duration::hours(2)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let (_, then) = app.get(&format!("/api/v1/schedules/{id}/on-call-now?at={two_hours_ago}"), &owner).await;
+    assert_eq!(then["primary"]["user_id"], andi.as_str(), "the hours already covered stay in history");
+    let (_, now) = app.get(&format!("/api/v1/schedules/{id}/on-call-now"), &owner).await;
+    assert_eq!(now["primary"]["user_id"], riky.as_str());
 }
 
 #[sqlx::test(migrator = "oncallkit::MIGRATOR")]

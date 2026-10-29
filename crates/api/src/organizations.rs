@@ -259,6 +259,16 @@ pub async fn remove_member(State(state): State<AppState>, ctx: OrgContext, Path(
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query(
+        "UPDATE shift_swaps SET status = 'canceled', decided_at = now(), decided_by = $3
+         WHERE organization_id = $1 AND status = 'pending' AND (requester_id = $2 OR target_user_id = $2)",
+    )
+    .bind(ctx.organization_id)
+    .bind(user_id)
+    .bind(ctx.user_id())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM calendar_feeds WHERE organization_id = $1 AND user_id = $2").bind(ctx.organization_id).bind(user_id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM organization_memberships WHERE organization_id = $1 AND user_id = $2")
         .bind(ctx.organization_id)
         .bind(user_id)

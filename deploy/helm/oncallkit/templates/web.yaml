@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oncallkit.fullname" . }}-web
+  labels:
+    {{- include "oncallkit.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "oncallkit.selectorLabels" (dict "root" . "component" "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oncallkit.selectorLabels" (dict "root" . "component" "web") | nindent 8 }}
+      {{- with .Values.web.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "oncallkit.podSecurity" . | nindent 6 }}
+      containers:
+        - name: web
+          image: {{ include "oncallkit.image" (dict "root" . "component" "web") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            # nginx serves the app and proxies /api here, so the browser sees one origin.
+            - name: API_UPSTREAM
+              value: "http://{{ include "oncallkit.fullname" . }}-api:8080"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 20
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          volumeMounts:
+            # The image renders its nginx config at start-up and keeps its pid and temp files in
+            # /tmp; both stay writable while the root filesystem is read-only.
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: conf
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.web.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "oncallkit.fullname" . }}-web
+  labels:
+    {{- include "oncallkit.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector:
+    {{- include "oncallkit.selectorLabels" (dict "root" . "component" "web") | nindent 4 }}
+{{- if .Values.ingress.enabled }}
+{{- $host := .Values.ingress.host | default (urlParse .Values.publicUrl).host }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "oncallkit.fullname" . }}
+  labels:
+    {{- include "oncallkit.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts: [{{ $host | quote }}]
+      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" (include "oncallkit.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "oncallkit.fullname" . }}-web
+                port:
+                  name: http
+{{- end }}

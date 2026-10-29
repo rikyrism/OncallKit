@@ -8,6 +8,8 @@ import { LoginPage } from "@/features/auth/LoginPage";
 import { RotationPreview } from "@/features/schedules/ScheduleFormPage";
 import { IntegrationsPage } from "@/features/integrations/IntegrationsPage";
 import { NotificationsPage } from "@/features/notifications/NotificationsPage";
+import { SubscribeDialog } from "@/features/settings/CalendarFeeds";
+import { SwapsPage } from "@/features/swaps/SwapsPage";
 import { meFixture, mockApi, renderWithProviders } from "./utils";
 import type { ScheduleForm } from "@/features/schedules/schema";
 
@@ -169,5 +171,80 @@ describe("notification history", () => {
     expect(screen.getAllByText("Failed").some((el) => el.tagName === "SPAN")).toBe(true);
     expect(screen.getByText(/Retry in 2 min/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+});
+
+describe("calendar subscription", () => {
+  it("creates a private link for a schedule and shows it once", async () => {
+    const calls = mockApi((url, init) => {
+      if (url === "/calendar-feeds" && init?.method === "POST")
+        return {
+          status: 201,
+          body: {
+            id: "f1",
+            schedule_id: "s1",
+            schedule_name: "DevOps",
+            created_at: "2026-10-29T00:00:00Z",
+            last_used_at: null,
+            url: "https://oncall.example.com/api/v1/calendar.ics?token=secret",
+            webcal_url: "webcal://oncall.example.com/api/v1/calendar.ics?token=secret",
+          },
+        };
+    });
+    renderWithProviders(<SubscribeDialog open onClose={() => {}} scheduleId="s1" scheduleName="DevOps" />);
+    expect(screen.getByText(/every shift of DevOps/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Create link" }));
+    expect(await screen.findByRole("textbox", { name: "Calendar link" })).toHaveValue("https://oncall.example.com/api/v1/calendar.ics?token=secret");
+    expect(screen.getByRole("link", { name: "Open in calendar app" })).toHaveAttribute("href", "webcal://oncall.example.com/api/v1/calendar.ics?token=secret");
+    const post = calls.find((c) => c.url === "/calendar-feeds" && c.init?.method === "POST");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({ schedule_id: "s1" });
+  });
+});
+
+describe("shift swaps", () => {
+  it("lets the person asked accept a request", async () => {
+    let status = "pending";
+    const swap = () => ({
+      id: "w1",
+      schedule_id: "s1",
+      schedule_name: "DevOps",
+      timezone: "Asia/Jakarta",
+      layer: "primary",
+      requester_id: "u2",
+      target_user_id: "u1",
+      start_at: "2026-11-10T02:00:00Z",
+      end_at: "2026-11-17T02:00:00Z",
+      return_start_at: null,
+      return_end_at: null,
+      reason: "Family trip",
+      status,
+      created_at: "2026-10-29T00:00:00Z",
+      decided_at: null,
+      decided_by: null,
+    });
+    const calls = mockApi((url, init) => {
+      if (url === "/me") return { status: 200, body: meFixture("member", ["view_organization"]) };
+      if (url === "/members")
+        return {
+          status: 200,
+          body: [
+            { user_id: "u1", email: "riky@acme.test", display_name: "Riky", avatar_url: null, role: "member", joined_at: "", team_ids: [] },
+            { user_id: "u2", email: "andi@acme.test", display_name: "Andi", avatar_url: null, role: "member", joined_at: "", team_ids: [] },
+          ],
+        };
+      if (url === "/swap-requests") return { status: 200, body: [swap()] };
+      if (url === "/swap-requests/w1/accept" && init?.method === "POST") {
+        status = "accepted";
+        return { status: 200, body: swap() };
+      }
+    });
+    renderWithProviders(<SwapsPage />);
+    expect(await screen.findByRole("heading", { name: "Waiting for you" })).toBeInTheDocument();
+    expect(screen.getByText("Andi asks Riky to cover")).toBeInTheDocument();
+    expect(screen.getByText(/Family trip/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(calls.some((c) => c.url === "/swap-requests/w1/accept")).toBe(true));
+    expect(await screen.findByText("Accepted")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Waiting for you" })).toBeNull();
   });
 });

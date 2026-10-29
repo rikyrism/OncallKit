@@ -1,0 +1,13 @@
+apiVersion: v2
+name: oncallkit
+description: Self-hosted on-call scheduling with automatic rotations and Discord notifications.
+type: application
+# Chart version and appVersion are set from the git tag when the release workflow publishes.
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/rikyrism/OncallKit
+sources:
+  - https://github.com/rikyrism/OncallKit
+keywords: [oncall, sre, devops, scheduling, discord]
+annotations:
+  licenses: Apache-2.0

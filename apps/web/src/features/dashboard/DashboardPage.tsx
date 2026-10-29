@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
-import { useCan, useMe, useMemberNames, useNotificationHealth, useOverview, useTeams } from "@/lib/queries";
+import { useCan, useMe, useMemberNames, useNotificationHealth, useOverview, useSwaps, useTeams } from "@/lib/queries";
 import { Empty, ErrorNote, LinkButton, Loading, Panel, cx } from "@/components/ui";
 import { formatDateTime, formatDay, formatTime, relative, zoneLabel } from "@/lib/time";
 import type { Overview } from "@/lib/types";
@@ -186,6 +186,27 @@ function Teams() {
   );
 }
 
+/** Swap requests waiting for the signed-in person's answer. */
+function SwapsWaiting() {
+  const { data: me } = useMe();
+  const { data } = useSwaps();
+  const name = useMemberNames();
+  const waiting = (data ?? []).filter((s) => s.status === "pending" && s.target_user_id === me?.user.user_id);
+  const first = waiting[0];
+  if (!first) return null;
+  return (
+    <Link to="/swaps" className="group flex flex-wrap items-center justify-between gap-3 bg-surface px-5 py-4 md:px-7">
+      <span className="text-lg">
+        <strong>{name(first.requester_id)}</strong> asked you to cover a shift on {first.schedule_name}
+        {waiting.length > 1 && ` (and ${waiting.length - 1} more request${waiting.length > 2 ? "s" : ""})`}.
+      </span>
+      <span className="inline-flex items-center gap-2 font-semibold group-hover:underline group-hover:underline-offset-4">
+        Answer <ArrowRight className="size-4" />
+      </span>
+    </Link>
+  );
+}
+
 export function DashboardPage() {
   const { data: me } = useMe();
   const { data, isLoading, error, refetch } = useOverview();
@@ -212,6 +233,7 @@ export function DashboardPage() {
         </div>
       </header>
 
+      <SwapsWaiting />
       {isLoading && <Loading />}
       {error && <ErrorNote error={error} retry={() => refetch()} />}
       {data && data.schedules.length === 0 && (

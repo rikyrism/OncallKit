@@ -1,0 +1,150 @@
+# Publish images and the Helm chart to Docker Hub when a version tag is pushed:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# Produces, for amd64 and arm64:
+#   <namespace>/oncallkit-api:0.2.0, :0.2, :latest
+#   <namespace>/oncallkit-web:0.2.0, :0.2, :latest
+#   oci://registry-1.docker.io/<namespace>/oncallkit (Helm chart 0.2.0)
+#
+# Repository settings needed (Settings → Secrets and variables → Actions):
+#   secret   DOCKERHUB_USERNAME   your Docker Hub user name
+#   secret   DOCKERHUB_TOKEN      a Docker Hub access token with read and write access
+#   variable DOCKERHUB_NAMESPACE  optional; the Docker Hub user or organization to publish to
+#                                 (defaults to ilhamriky)
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish without the leading v, e.g. 0.2.0
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || 'ilhamriky' }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        env:
+          INPUT: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="${INPUT:-${REF_NAME#v}}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$version' is not a semantic version such as 0.2.0"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # Each image is built natively on amd64 and arm64 runners (much faster than emulation for the
+  # Rust build), pushed by digest, and joined into one multi-platform tag afterwards.
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        image: [api, web]
+        platform:
+          - { name: linux/amd64, runner: ubuntu-24.04, slug: amd64 }
+          - { name: linux/arm64, runner: ubuntu-24.04-arm, slug: arm64 }
+    runs-on: ${{ matrix.platform.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/${{ matrix.image }}.Dockerfile
+          platforms: ${{ matrix.platform.name }}
+          labels: |
+            org.opencontainers.image.title=oncallkit-${{ matrix.image }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.licenses=Apache-2.0
+          outputs: type=image,name=docker.io/${{ env.NAMESPACE }}/oncallkit-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform.slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.platform.slug }}
+      - name: Record digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.platform.slug }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [api, web]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Create multi-platform tags
+        working-directory: /tmp/digests
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          IMAGE: docker.io/${{ env.NAMESPACE }}/oncallkit-${{ matrix.image }}
+        run: |
+          tags=(-t "$IMAGE:$VERSION")
+          # Pre-releases (0.2.0-rc.1) get only their exact tag.
+          if [[ "$VERSION" != *-* ]]; then
+            tags+=(-t "$IMAGE:${VERSION%.*}" -t "$IMAGE:latest")
+          fi
+          sources=()
+          for digest in *; do sources+=("$IMAGE@sha256:$digest"); done
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+
+  chart:
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Package and push the chart
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          # Point the chart's default images at the namespace they were just published to.
+          sed -i "s#repository: ilhamriky/oncallkit-#repository: $NAMESPACE/oncallkit-#" deploy/helm/oncallkit/values.yaml
+          helm lint deploy/helm/oncallkit --strict --set publicUrl=https://oncall.example.com --set postgresql.enabled=true --set google.clientId=id --set google.clientSecret=secret
+          helm package deploy/helm/oncallkit --version "$VERSION" --app-version "$VERSION" --destination dist
+          echo "$DOCKERHUB_TOKEN" | helm registry login registry-1.docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
+          helm push "dist/oncallkit-$VERSION.tgz" "oci://registry-1.docker.io/$NAMESPACE"

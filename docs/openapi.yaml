@@ -562,3 +562,99 @@ paths:
         - { $ref: "#/components/parameters/Offset" }
         - { name: action, in: query, schema: { type: string }, description: Action prefix, e.g. "schedule." }
       responses: { "200": { description: Page of entries } }
+  /swap-requests:
+    get:
+      summary: Shift swap requests you made or received
+      parameters:
+        - { name: all, in: query, schema: { type: boolean }, description: "Every request in the organization (scheduler and above)" }
+      responses:
+        "200":
+          description: >
+            Requests, newest first. `status` is pending, accepted, declined, canceled, or expired
+            (a pending request whose shift has begun or whose schedule was archived).
+    post:
+      summary: Ask a colleague to cover one of your shifts
+      description: >
+        You must hold `layer` for the whole of `[start, end)`, and the shift must not have started.
+        Optionally offer to take one of the colleague's shifts (`return_start`, `return_end`) on the
+        same layer in exchange; it must be theirs and must not overlap. Nothing changes until the
+        colleague accepts.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [schedule_id, layer, target_user_id, start, end]
+              properties:
+                schedule_id: { type: string, format: uuid }
+                layer: { type: string, enum: [primary, secondary] }
+                target_user_id: { type: string, format: uuid }
+                start: { type: string, format: date-time }
+                end: { type: string, format: date-time }
+                return_start: { type: string, format: date-time, nullable: true }
+                return_end: { type: string, format: date-time, nullable: true }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "201": { description: Request created }
+        "409": { description: "You (or they, for the exchange) do not hold that shift, or too many open requests" }
+        "422": { description: Invalid window, started shift, yourself or a non-member as target }
+  /swap-requests/{id}/accept:
+    post:
+      summary: Accept a request made to you
+      description: >
+        Re-checks the schedule as it is now, then creates the overrides (one, or two for an
+        exchange) and announces them like any override.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: Accepted }
+        "403": { description: Only the person asked can accept }
+        "409": { description: Already answered, expired, or the schedule changed so the swap no longer applies }
+  /swap-requests/{id}/decline:
+    post:
+      summary: Decline a request made to you
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: Declined }, "403": { description: Not the person asked }, "409": { description: Already answered } }
+  /swap-requests/{id}/cancel:
+    post:
+      summary: Cancel your own request (schedulers can cancel any)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: Canceled }, "403": { description: Not allowed }, "409": { description: Already answered } }
+  /calendar-feeds:
+    get:
+      summary: Your calendar links in the active organization (the links themselves are never returned again)
+      responses: { "200": { description: Calendar feeds } }
+    post:
+      summary: Create a secret iCalendar link
+      description: >
+        Without `schedule_id` the feed lists your own shifts across the organization; with it, every
+        shift of that schedule. The response is the only time `url` and `webcal_url` are shown.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                schedule_id: { type: string, format: uuid, nullable: true }
+      responses:
+        "201": { description: "Feed created; includes `url` and `webcal_url`" }
+        "409": { description: Too many links (at most 20 per person per organization) }
+        "422": { description: Unknown schedule }
+  /calendar-feeds/{id}:
+    delete:
+      summary: Revoke one of your calendar links
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: Revoked }, "404": { description: Not found } }
+  /calendar.ics:
+    get:
+      summary: iCalendar feed (RFC 5545) for calendar apps
+      description: >
+        Authenticated only by the secret token, so calendar apps can subscribe without a session.
+        Covers 30 days back to 180 days ahead, with times in UTC. Stops working when the link is
+        revoked or its owner leaves the organization or is disabled.
+      security: []
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "text/calendar", content: { text/calendar: { schema: { type: string } } } }
+        "404": { description: Unknown or revoked link }
+        "429": { description: Rate limited }

@@ -25,12 +25,24 @@ pub struct AppState {
 
 impl AppState {
     pub async fn connect(config: Config) -> Result<Self> {
-        let db = PgPoolOptions::new()
-            .max_connections(config.database_max_connections)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(&config.database_url)
-            .await
-            .context("could not connect to PostgreSQL")?;
+        // The database often starts at the same time as the app (Compose, Kubernetes), so keep
+        // trying for a while before giving up instead of crash-looping.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let db = loop {
+            match PgPoolOptions::new()
+                .max_connections(config.database_max_connections)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&config.database_url)
+                .await
+            {
+                Ok(db) => break db,
+                Err(err) if std::time::Instant::now() < deadline => {
+                    tracing::warn!(error = %err, "PostgreSQL is not reachable yet; retrying");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                Err(err) => return Err(err).context("could not connect to PostgreSQL"),
+            }
+        };
         let google = match &config.google {
             Some(g) => Some(Arc::new(GoogleOidc::discover(g, &config).await.context("Google OpenID Connect discovery failed")?)),
             None => None,

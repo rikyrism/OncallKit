@@ -256,3 +256,37 @@ export interface SessionInfo {
   expires_at: string;
   current: boolean;
 }
+
+export interface CalendarFeed {
+  id: string;
+  schedule_id: string | null;
+  schedule_name: string | null;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface CreatedCalendarFeed extends CalendarFeed {
+  url: string;
+  webcal_url: string;
+}
+
+export type SwapStatus = "pending" | "accepted" | "declined" | "canceled" | "expired";
+
+export interface SwapRequest {
+  id: string;
+  schedule_id: string;
+  schedule_name: string;
+  timezone: string;
+  layer: Layer;
+  requester_id: string;
+  target_user_id: string;
+  start_at: string;
+  end_at: string;
+  return_start_at: string | null;
+  return_end_at: string | null;
+  reason: string;
+  status: SwapStatus;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+}

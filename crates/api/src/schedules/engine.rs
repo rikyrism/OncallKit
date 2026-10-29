@@ -211,8 +211,10 @@ impl ScheduleSpec {
     }
 
     /// The window during which `self.versions[i]` is in force, before clipping to a query window.
+    /// The first version always covers the schedule from its start, so moving the start of a
+    /// schedule that has not begun yet never leaves a gap before the original start.
     fn version_range(&self, i: usize) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
-        let from = self.versions[i].effective_from.max(self.start);
+        let from = if i == 0 { self.start } else { self.versions[i].effective_from.max(self.start) };
         let next = self.versions.get(i + 1).map(|v| v.effective_from);
         let until = match (next, self.end) {
             (Some(a), Some(b)) => Some(a.min(b)),
@@ -313,6 +315,24 @@ impl ScheduleSpec {
             }
         }
         out
+    }
+
+    /// Whether `user` holds `layer` for the whole of `[start, end)`, with no gap and nobody else.
+    pub fn holds(&self, layer: Layer, user: Uuid, start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
+        if end <= start {
+            return false;
+        }
+        let mut covered_until = start;
+        for shift in self.layer_shifts(layer, start, end) {
+            if shift.start > covered_until || shift.user_id != user {
+                return false;
+            }
+            covered_until = covered_until.max(shift.end);
+            if covered_until >= end {
+                return true;
+            }
+        }
+        false
     }
 
     /// The next instant after `t` at which the rotation (not an override) hands over `layer`.
@@ -662,5 +682,43 @@ mod tests {
         let spec = weekly_jakarta();
         let shifts = spec.layer_shifts(Layer::Primary, spec.start, spec.start + Duration::days(100_000));
         assert!(shifts.last().unwrap().end <= spec.start + Duration::days(MAX_WINDOW_DAYS) + Duration::days(7));
+    }
+
+    #[test]
+    fn holds_requires_the_whole_window() {
+        let spec = weekly_jakarta();
+        let tz = spec.timezone;
+        let (riky_from, riky_to) = (local(tz, 2026, 11, 3, 9, 0), local(tz, 2026, 11, 10, 9, 0));
+        assert!(spec.holds(Layer::Primary, user(RIKY), riky_from, riky_to));
+        assert!(spec.holds(Layer::Primary, user(RIKY), riky_from + Duration::days(1), riky_to - Duration::days(1)));
+        // Runs into Andi's week.
+        assert!(!spec.holds(Layer::Primary, user(RIKY), riky_from, riky_to + Duration::hours(1)));
+        // Starts before the schedule exists.
+        assert!(!spec.holds(Layer::Primary, user(RIKY), riky_from - Duration::hours(1), riky_to));
+        assert!(!spec.holds(Layer::Primary, user(ANDI), riky_from, riky_to));
+        assert!(!spec.holds(Layer::Primary, user(RIKY), riky_to, riky_from));
+        // An override hands part of the week to Budi.
+        let mut with_override = spec.clone();
+        with_override.overrides.push(Override {
+            id: Uuid::nil(),
+            layer: Layer::Primary,
+            user_id: user(BUDI),
+            start: riky_from + Duration::days(2),
+            end: riky_from + Duration::days(3),
+        });
+        assert!(!with_override.holds(Layer::Primary, user(RIKY), riky_from, riky_to));
+        assert!(with_override.holds(Layer::Primary, user(BUDI), riky_from + Duration::days(2), riky_from + Duration::days(3)));
+    }
+
+    #[test]
+    fn first_version_covers_an_earlier_start() {
+        // The start was moved two days earlier before the schedule began; the stored version
+        // still carries the old start as its effective_from.
+        let tz: Tz = "UTC".parse().unwrap();
+        let old_start = local(tz, 2026, 1, 10, 9, 0);
+        let new_start = old_start - Duration::days(2);
+        let spec = ScheduleSpec::new(tz, new_start, None, vec![version(old_start, 1, RotationUnit::Days, &[RIKY, ANDI], &[])], vec![]);
+        assert_eq!(spec.on_call_at(Layer::Primary, new_start).map(|s| s.user_id), Some(user(RIKY)));
+        assert_eq!(spec.on_call_at(Layer::Primary, new_start + Duration::days(1)).map(|s| s.user_id), Some(user(ANDI)));
     }
 }

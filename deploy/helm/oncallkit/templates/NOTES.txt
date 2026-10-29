@@ -1,0 +1,30 @@
+OncallKit is starting.
+
+{{- if .Values.ingress.enabled }}
+
+Open it at: {{ .Values.publicUrl }}
+{{- else }}
+
+No ingress is enabled. To try it from this machine:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "oncallkit.fullname" . }}-web 8080:{{ .Values.service.port }}
+
+and open http://localhost:8080 (publicUrl must match the address you use).
+{{- end }}
+
+Make yourself the first administrator (sign in with this Google account afterwards):
+
+  kubectl --namespace {{ .Release.Namespace }} exec deploy/{{ include "oncallkit.fullname" . }}-api -- oncallkit bootstrap-admin --email you@example.com
+
+{{- if and (not .Values.existingSecret) (not .Values.encryptionKey) }}
+
+The encryption key for Discord webhook URLs was generated and stored in the Secret
+{{ include "oncallkit.fullname" . }}. Back it up; without it stored webhooks cannot be read:
+
+  kubectl --namespace {{ .Release.Namespace }} get secret {{ include "oncallkit.fullname" . }} -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+
+The bundled PostgreSQL is a single instance meant for trying OncallKit out or small teams.
+Back up its volume, or use a managed database (database.url) in production.
+{{- end }}
