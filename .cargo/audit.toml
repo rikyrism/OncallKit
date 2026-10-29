@@ -1,0 +1,14 @@
+# cargo audit configuration (also used by CI). Every ignored advisory needs a reason and is
+# revisited when the dependency that pulls it in is upgraded.
+[advisories]
+ignore = [
+    # rsa: "Marvin Attack" timing side channel that can recover an RSA *private* key during
+    # decryption or signing. Pulled in by openidconnect, which OncallKit only uses to *verify*
+    # Google's ID-token signatures with Google's public keys; no private RSA key exists in the
+    # process. No patched release exists upstream.
+    "RUSTSEC-2023-0071",
+    # crypto-bigint 0.5: timing variability in operations on *secret* integers. Pulled in via
+    # p256/p384 (openidconnect) for ECDSA signature *verification*, which handles only public
+    # values. The fix is in crypto-bigint 0.7, which the elliptic-curve 0.13 line cannot use.
+    "RUSTSEC-2026-0387",
+]
