@@ -29,7 +29,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/oncallkit_test
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -41,7 +41,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
@@ -54,8 +54,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -70,8 +70,8 @@ jobs:
   helm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - run: helm lint deploy/helm/oncallkit --strict --set publicUrl=https://oncall.example.com --set postgresql.enabled=true --set google.clientId=id --set google.clientSecret=secret
       - name: Render with common configurations
         run: |
@@ -87,10 +87,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - name: Build API image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/docker/api.Dockerfile
@@ -98,7 +98,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/docker/web.Dockerfile
